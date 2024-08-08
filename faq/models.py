@@ -1,14 +1,20 @@
 from django.db import models
+from django.contrib.auth.models import User
 
-class User(models.Model):
-    username = models.CharField(max_length=15, unique=True)  # 아이디
-    password = models.CharField(max_length=15)  # 비밀번호
-    name = models.CharField(max_length=15)  # 이름
-    date_of_birth = models.DateField()  # 생년월일
-    phone_number = models.CharField(max_length=11)  # 휴대폰번호
-    email = models.EmailField(unique=True)  # 이메일
-    business_name = models.CharField(max_length=20)  # 업소명
-    address = models.CharField(max_length=100)  # 주소
+class Profile(models.Model):
+    user = models.OneToOneField(User, on_delete=models.CASCADE)
+    birth_date = models.DateField(null=True, blank=True)
+    phone_number = models.CharField(max_length=15, null=True, blank=True)
+    store_name = models.CharField(max_length=100, null=True, blank=True)
+    address = models.CharField(max_length=255, null=True, blank=True)
 
     def __str__(self):
-        return self.username
+        return self.user.username
+
+class UploadedFile(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    file = models.FileField(upload_to='uploads/')
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.user.username} - {self.file.name}"

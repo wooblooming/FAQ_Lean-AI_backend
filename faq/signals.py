@@ -7,10 +7,10 @@ from .models import Profile
 def create_user_profile(sender, instance, created, **kwargs):
     if created:
         Profile.objects.create(user=instance)
-
-@receiver(post_save, sender=User)
-def save_user_profile(sender, instance, **kwargs):
-    try:
-        instance.profile.save()
-    except Profile.DoesNotExist:
-        Profile.objects.create(user=instance)
+    else:
+        # 프로필이 이미 존재하는 경우에는 저장만 합니다.
+        try:
+            instance.profile.save()
+        except Profile.DoesNotExist:
+            # 만약 프로필이 없는 경우 (예외적인 경우), 새로 생성합니다.
+            Profile.objects.create(user=instance)

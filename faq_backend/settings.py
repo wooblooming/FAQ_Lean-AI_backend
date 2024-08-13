@@ -12,6 +12,8 @@ https://docs.djangoproject.com/en/5.0/ref/settings/
 
 from pathlib import Path
 from my_settings import SECRET_KEY, DATABASES
+import os
+from datetime import timedelta
 
 # 프로젝트 내부 경로 설정
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -41,12 +43,14 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'django.contrib.sites',
     'faq',
     'allauth',
     'allauth.account',
     'allauth.socialaccount',
-    # 소셜 계정을 사용할 경우 필요한 provider 추가
-    # 예: 'allauth.socialaccount.providers.google',
+    'allauth.socialaccount.providers.kakao',
+    'allauth.socialaccount.providers.naver',
+    'allauth.socialaccount.providers.google',
 ]
 
 SITE_ID = 1
@@ -55,10 +59,6 @@ AUTHENTICATION_BACKENDS = [
     'django.contrib.auth.backends.ModelBackend',
     'allauth.account.auth_backends.AuthenticationBackend',
 ]
-
-# 이메일 인증 관련 설정
-ACCOUNT_EMAIL_VERIFICATION = "none"  # "optional" 또는 "mandatory"로 변경 가능
-ACCOUNT_EMAIL_REQUIRED = True
 
 LOGIN_REDIRECT_URL = 'mypage'
 LOGIN_URL = 'login'
@@ -75,13 +75,39 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'allauth.account.middleware.AccountMiddleware',  # 추가된 미들웨어
 ]
+SOCIALACCOUNT_PROVIDERS = {
+    'kakao': {
+        'APP': {
+            'client_id': 'bbde5c98ba159a907d6ccd4ce5f9ad96',  # 카카오 REST API 키
+            'secret': '',  # 카카오는 secret이 필요 없습니다.
+            'key': ''
+        }
+    },
+    #  'naver': {
+    #     'APP': {
+    #         'client_id': 'Fz1x8vLnmERND8qBVuv_',  # 네이버 Client ID
+    #         'secret': 'x5vyqX0Q9h',  # 네이버 Client Secret
+    #         'key': ''
+    #     }
+    # }
+}
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=5),  # Access Token의 유효 기간 (5분).
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=1),  # Refresh Token의 유효 기간 (1일).
+    'ROTATE_REFRESH_TOKENS': False,  # Refresh Token 사용 시 새 토큰 발급 여부 (False: 유지).
+    'BLACKLIST_AFTER_ROTATION': True,  # Refresh Token 회전 시 이전 토큰 블랙리스트 추가 여부 (True).
+    'ALGORITHM': 'HS256',  # JWT 서명 알고리즘 (HS256).
+    'SIGNING_KEY': SECRET_KEY,  # JWT 서명에 사용될 비밀 키.
+    'AUTH_HEADER_TYPES': ('Bearer',),  # JWT를 전송할 때 사용되는 Authorization 헤더 타입.
+}
+
 
 ROOT_URLCONF = 'faq_backend.urls'
 
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [BASE_DIR / 'templates'],
+        'DIRS': [os.path.join(BASE_DIR, '../FAQ_Lean-AI_frontend/html/업주측 프론트')],  # 폴더 경로 지정
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [

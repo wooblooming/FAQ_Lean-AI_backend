@@ -2,6 +2,7 @@ from django import forms
 import re
 from django.contrib.auth.models import User
 from django.contrib.auth.forms import UserCreationForm, AuthenticationForm
+from .models import Profile
 
 class SignUpForm(UserCreationForm):
     email = forms.EmailField(required=True)
@@ -17,17 +18,7 @@ class SignUpForm(UserCreationForm):
 
     class Meta:
         model = User
-        fields = ('username', 'password1', 'password2', 'name', 'email', 'birth_date', 'phone_number', 'store_name', 'address')
-        help_texts = {
-            'username': "150자 이하 ",
-            'password1': """
-                다른 개인 정보와 유사한 비밀번호는 사용할 수 없습니다.<br>
-                비밀번호는 최소 8자 이상이어야 합니다.<br>
-                통상적으로 자주 사용되는 비밀번호는 사용할 수 없습니다.<br>
-                숫자로만 이루어진 비밀번호는 사용할 수 없습니다.
-            """,
-            'password2': "확인을 위해 이전과 동일한 비밀번호를 입력하세요."
-        }
+        fields = ('username', 'password1', 'password2', 'name', 'birth_date', 'phone_number', 'email',  'store_name', 'address')
 
     def save(self, commit=True):
         user = super().save(commit=False)
@@ -45,3 +36,23 @@ class SignUpForm(UserCreationForm):
 class LoginForm(AuthenticationForm):
     username = forms.CharField(max_length=254, required=True)
     password = forms.CharField(widget=forms.PasswordInput, required=True)
+    
+class EditProfileForm(forms.ModelForm):
+    email = forms.EmailField(required=True)  # User 모델의 email 필드를 폼에 추가
+
+    class Meta:
+        model = Profile
+        fields = ['store_name', 'address', 'phone_number', 'birth_date']  # Profile 모델 필드들만 포함
+
+    def __init__(self, *args, **kwargs):
+        super(EditProfileForm, self).__init__(*args, **kwargs)
+        self.fields['email'].initial = self.instance.user.email
+
+    def save(self, commit=True):
+        profile = super().save(commit=False)
+        profile.user.email = self.cleaned_data['email']
+        if commit:
+            profile.user.save()
+            profile.save()
+        return profile
+

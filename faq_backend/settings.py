@@ -51,6 +51,7 @@ INSTALLED_APPS = [
     'allauth.socialaccount.providers.kakao',
     'allauth.socialaccount.providers.naver',
     'allauth.socialaccount.providers.google',
+    'rest_framework',
 ]
 
 SITE_ID = 1
@@ -107,12 +108,14 @@ ROOT_URLCONF = 'faq_backend.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [os.path.join(BASE_DIR, '../FAQ_Lean-AI_frontend/html/업주측 프론트')],  # 폴더 경로 지정
+        'DIRS': [
+            os.path.join(BASE_DIR, 'FAQ_Lean-AI_frontend', 'html')
+        ],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
                 'django.template.context_processors.debug',
-                'django.template.context_processors.request',  # 이 줄이 필요합니다.
+                'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
             ],

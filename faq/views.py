@@ -26,16 +26,10 @@ def signup(request):
     return JsonResponse({'success': False, 'error': '잘못된 요청입니다.'})
 
 def login(request):
-    """로그인 뷰: 사용자가 이메일 인증을 완료했는지 확인하고 로그인합니다."""
     if request.method == 'POST':
         form = LoginForm(data=request.POST)
         if form.is_valid():
             user = form.get_user()
-            if user.profile.is_email_verified:
-                auth_login(request, user)
-                return JsonResponse({'success': True})
-            else:
-                return JsonResponse({'success': False, 'error': '이메일 인증을 완료해주세요.'})
         return JsonResponse({'success': False, 'errors': form.errors})
     
     return JsonResponse({'success': False, 'error': '잘못된 요청입니다.'})

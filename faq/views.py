@@ -1,102 +1,113 @@
-from django.contrib.auth import login as auth_login, logout as auth_logout
-from django.contrib.auth.decorators import login_required
-from django.utils import timezone
-from django.core.files.storage import FileSystemStorage
-from django.core.files.base import ContentFile
-from django.conf import settings
-from django.http import JsonResponse, HttpResponseRedirect
+from rest_framework import status
+from rest_framework.response import Response
+from rest_framework.views import APIView
+from .serializers import UserSerializer, LoginSerializer, UsernameCheckSerializer
+from .models import User
+from django.core.cache import cache
+import requests
 import json
-import uuid
-import os
+import random
+from django.conf import settings
 
-from .forms import SignUpForm, LoginForm, EditProfileForm
-from .models import Profile, UploadedFile
+class SignupView(APIView):
+    def post(self, request):
+        # 클라이언트에서 보낸 데이터를 바탕으로 UserSerializer 인스턴스를 만듭니다.
+        serializer = UserSerializer(data=request.data)
+        # 데이터가 유효한지 확인합니다.
+        if serializer.is_valid():
+            # 데이터가 유효하면 저장하고, 성공 응답을 반환합니다.
+            serializer.save()
+            return Response(
+                {'success': True, 'message': 'User created successfully.'},  # 성공 메시지와 함께
+                status=status.HTTP_201_CREATED  # HTTP 201 상태 코드를 반환합니다.
+            )
+        # 데이터가 유효하지 않다면, 오류 메시지를 포함한 응답을 반환합니다.
+        return Response(
+            {'success': False, 'message': serializer.errors},  # 오류 메시지와 함께
+            status=status.HTTP_400_BAD_REQUEST  # HTTP 400 상태 코드를 반환합니다.
+        )
+        
+class LoginView(APIView):
+    def post(self, request):
+        # 시리얼라이저로 데이터 검증
+        serializer = LoginSerializer(data=request.data)
+        if serializer.is_valid():
+            username = serializer.validated_data['username']
+            password = serializer.validated_data['password']
 
-# 사용자 인증 관련 뷰
-def signup(request):
-    """회원가입 뷰: 회원가입 후 사용자를 로그인합니다."""
-    if request.method == 'POST':
-        form = SignUpForm(request.POST)
-        if form.is_valid():
-            user = form.save()
-            auth_login(request, user)
-            return JsonResponse({'success': True})
-        return JsonResponse({'success': False, 'errors': form.errors})
+            # 사용자 존재 및 비밀번호 검증
+            try:
+                user = User.objects.get(username=username)
+                if user.password == password:
+                    return Response({'success': True, 'message': 'Login successful'}, status=status.HTTP_200_OK)
+            except User.DoesNotExist:
+                pass
+            
+            # 사용자 존재하지 않거나 비밀번호가 틀린 경우
+            return Response({'success': False, 'message': 'Invalid credentials'}, status=status.HTTP_401_UNAUTHORIZED)
+        
+        # 시리얼라이저 검증 실패 시
+        return Response({'success': False, 'message': 'Invalid data'}, status=status.HTTP_400_BAD_REQUEST)
     
-    return JsonResponse({'success': False, 'error': '잘못된 요청입니다.'})
-
-def login(request):
-    if request.method == 'POST':
-        form = LoginForm(data=request.POST)
-        if form.is_valid():
-            user = form.get_user()
-        return JsonResponse({'success': False, 'errors': form.errors})
+class UsernameCheckView(APIView):
+    def post(self, request):
+        serializer = UsernameCheckSerializer(data=request.data)
+        if serializer.is_valid():
+            username = serializer.validated_data['username']
+            if User.objects.filter(username=username).exists():
+                return Response({'is_duplicate': True, 'message': 'This username is already taken.'}, status=status.HTTP_200_OK)
+            else:
+                return Response({'is_duplicate': False, 'message': 'This username is available.'}, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
-    return JsonResponse({'success': False, 'error': '잘못된 요청입니다.'})
+class SendVerificationCodeView(APIView):
+    def generate_verification_code(self):
+        """6자리 인증 번호 생성"""
+        return str(random.randint(100000, 999999))
 
-def logout(request):
-    """로그아웃 뷰: 사용자를 로그아웃시킵니다."""
-    auth_logout(request)
-    return JsonResponse({'success': True})
+    def post(self, request):
+        phone_number = request.data.get('phone')
 
-@login_required
-def mypage(request):
-    """마이페이지 뷰: 현재 로그인한 사용자의 프로필을 반환합니다."""
-    profile = request.user.profile
-    return JsonResponse({
-        'username': profile.user.username,
-        'email': profile.user.email,
-        # 필요한 다른 프로필 정보를 여기에 추가
-    })
+        if not phone_number:
+            return Response({'success': False, 'message': '전화번호를 입력해주세요.'}, status=status.HTTP_400_BAD_REQUEST)
 
-@login_required
-def edit_profile(request):
-    """프로필 수정 뷰: 사용자가 자신의 프로필을 수정할 수 있습니다."""
-    if request.method == 'POST':
-        form = EditProfileForm(request.POST, instance=request.user.profile)
-        if form.is_valid():
-            form.save()
-            return JsonResponse({'success': True})
-        return JsonResponse({'success': False, 'errors': form.errors})
-    
-    return JsonResponse({'success': False, 'error': '잘못된 요청입니다.'})
+        # 인증 번호 생성
+        verification_code = self.generate_verification_code()
+        print(verification_code)  # 테스트용으로 터미널에 출력
 
-# 파일 업로드 관련 뷰
-@login_required
-def upload_file(request):
-    """파일 업로드 뷰: 사용자가 파일을 업로드하고, 설명을 추가할 수 있습니다."""
-    if request.method == 'POST':
-        description = request.POST.get('description')
-        upload_dir = 'uploads'
-        fs = FileSystemStorage()
-        uploaded_file_urls = []
+        # 인증 번호를 캐시에 저장 (5분간 유효)
+        cache.set(f'verification_code_{phone_number}', verification_code, timeout=300)
 
-        try:
-            if request.FILES.getlist('file'):
-                for myfile in request.FILES.getlist('file'):
-                    user_name = request.user.username
-                    current_time = timezone.now().strftime('%Y%m%d_%H%M%S')
-                    file_extension = os.path.splitext(myfile.name)[1]
-                    new_filename = f"{user_name}_{current_time}{file_extension}"
+        # 알리고 API로 SMS 발송
+        sms_data = {
+            'key': settings.ALIGO_API_KEY,
+            'user_id': settings.ALIGO_USER_ID,
+            'sender': settings.ALIGO_SENDER,
+            'receiver': phone_number,
+            'msg': f'회원가입 인증 번호는 [{verification_code}]입니다.',
+            'testmode_yn': 'Y',  # 테스트 모드 'Y'로 설정하면 실제로 메시지가 발송되지 않습니다.
+        }
 
-                    file_path = os.path.join(upload_dir, new_filename)
-                    filename = fs.save(file_path, myfile)
-                    uploaded_file_url = fs.url(filename)
-                    uploaded_file_urls.append(uploaded_file_url)
+        response = requests.post('https://apis.aligo.in/send/', data=sms_data)
 
-                    UploadedFile.objects.create(user=request.user, file=filename, description=description)
+        if response.status_code == 200:
+            return Response({'success': True, 'message': '인증 번호가 발송되었습니다.'})
+        else:
+            return Response({'success': False, 'message': '인증 번호 발송에 실패했습니다.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-            if description:
-                text_filename = f"{request.user.username}_{timezone.now().strftime('%Y%m%d_%H%M%S')}.txt"
-                text_file_path = os.path.join(upload_dir, text_filename)
-                fs.save(text_file_path, ContentFile(description))
 
-                UploadedFile.objects.create(user=request.user, file=text_file_path, description=description)
-                uploaded_file_urls.append(fs.url(text_file_path))
+class VerifyCodeView(APIView):
+    def post(self, request):
+        phone_number = request.data.get('phone')
+        entered_code = request.data.get('code')
 
-            return JsonResponse({'success': True, 'uploaded_file_urls': uploaded_file_urls})
+        if not phone_number or not entered_code:
+            return Response({'success': False, 'message': '전화번호와 인증 번호를 입력해주세요.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        except Exception as e:
-            return JsonResponse({'success': False, 'error': str(e)})
+        # 저장된 인증 번호 가져오기
+        saved_code = cache.get(f'verification_code_{phone_number}')
 
-    return JsonResponse({'success': False, 'error': '잘못된 요청입니다.'})
+        if saved_code and saved_code == entered_code:
+            return Response({'success': True, 'message': '인증이 완료되었습니다.'})
+        else:
+            return Response({'success': False, 'message': '인증 번호가 일치하지 않습니다.'}, status=status.HTTP_400_BAD_REQUEST)

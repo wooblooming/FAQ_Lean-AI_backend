@@ -1,41 +1,54 @@
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from .serializers import UserSerializer, LoginSerializer, UsernameCheckSerializer
-from .models import User
+from .serializers import UserSerializer,StoreSerializer , LoginSerializer, UsernameCheckSerializer
+from .models import User, Store
 from django.core.cache import cache
 import requests
-import json
 import random
 from django.conf import settings
 
 class SignupView(APIView):
     def post(self, request):
-        # 클라이언트에서 보낸 데이터를 바탕으로 UserSerializer 인스턴스를 만듭니다.
-        serializer = UserSerializer(data=request.data)
-        # 데이터가 유효한지 확인합니다.
-        if serializer.is_valid():
-            # 데이터가 유효하면 저장하고, 성공 응답을 반환합니다.
-            serializer.save()
-            return Response(
-                {'success': True, 'message': 'User created successfully.'},  # 성공 메시지와 함께
-                status=status.HTTP_201_CREATED  # HTTP 201 상태 코드를 반환합니다.
-            )
-        # 데이터가 유효하지 않다면, 오류 메시지를 포함한 응답을 반환합니다.
-        return Response(
-            {'success': False, 'message': serializer.errors},  # 오류 메시지와 함께
-            status=status.HTTP_400_BAD_REQUEST  # HTTP 400 상태 코드를 반환합니다.
-        )
+        # User와 Store 데이터를 받아옵니다.
+        user_data = {
+            'username': request.data.get('username'),
+            'password': request.data.get('password'),
+            'name': request.data.get('name'),
+            'dob': request.data.get('dob'),
+            'phone': request.data.get('phone'),
+            'email': request.data.get('email')
+        }
+        store_data = {
+            'store_name': request.data.get('store_name'),
+            'store_address': request.data.get('store_address'),
+            'user': None  # 나중에 연결할 user를 위한 자리
+        }
+
+        # User 생성 및 검증
+        user_serializer = UserSerializer(data=user_data)
+        if user_serializer.is_valid():
+            user = user_serializer.save()
+            store_data['user'] = user.user_id  # Store 데이터에 user 연결
+
+            # Store 생성 및 검증
+            store_serializer = StoreSerializer(data=store_data)
+            if store_serializer.is_valid():
+                store_serializer.save()
+                return Response({'success': True, 'message': 'User and Store created successfully.'}, status=status.HTTP_201_CREATED)
+            user.delete()  # Store 생성 실패 시, 사용자 삭제
+            return Response({'success': False, 'message': store_serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response({'success': False, 'message': user_serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+
         
 class LoginView(APIView):
     def post(self, request):
-        # 시리얼라이저로 데이터 검증
         serializer = LoginSerializer(data=request.data)
         if serializer.is_valid():
             username = serializer.validated_data['username']
             password = serializer.validated_data['password']
 
-            # 사용자 존재 및 비밀번호 검증
             try:
                 user = User.objects.get(username=username)
                 if user.password == password:
@@ -43,11 +56,10 @@ class LoginView(APIView):
             except User.DoesNotExist:
                 pass
             
-            # 사용자 존재하지 않거나 비밀번호가 틀린 경우
             return Response({'success': False, 'message': 'Invalid credentials'}, status=status.HTTP_401_UNAUTHORIZED)
         
-        # 시리얼라이저 검증 실패 시
         return Response({'success': False, 'message': 'Invalid data'}, status=status.HTTP_400_BAD_REQUEST)
+
     
 class UsernameCheckView(APIView):
     def post(self, request):
@@ -62,30 +74,28 @@ class UsernameCheckView(APIView):
     
 class SendVerificationCodeView(APIView):
     def generate_verification_code(self):
-        """6자리 인증 번호 생성"""
         return str(random.randint(100000, 999999))
 
     def post(self, request):
         phone_number = request.data.get('phone')
+        code_type = request.data.get('type')  # 'signup' 또는 'findidpw' 값을 가질 수 있음
 
-        if not phone_number:
+        if not phone_number or not code_type:
             return Response({'success': False, 'message': '전화번호를 입력해주세요.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        # 인증 번호 생성
         verification_code = self.generate_verification_code()
-        print(verification_code)  # 테스트용으로 터미널에 출력
+        print(verification_code)
 
-        # 인증 번호를 캐시에 저장 (5분간 유효)
-        cache.set(f'verification_code_{phone_number}', verification_code, timeout=300)
+        cache_key = f'{code_type}_verification_code_{phone_number}'
+        cache.set(cache_key, verification_code, timeout=300)
 
-        # 알리고 API로 SMS 발송
         sms_data = {
             'key': settings.ALIGO_API_KEY,
             'user_id': settings.ALIGO_USER_ID,
             'sender': settings.ALIGO_SENDER,
             'receiver': phone_number,
-            'msg': f'회원가입 인증 번호는 [{verification_code}]입니다.',
-            'testmode_yn': 'Y',  # 테스트 모드 'Y'로 설정하면 실제로 메시지가 발송되지 않습니다.
+            'msg': f'인증 번호는 [{verification_code}]입니다.',
+            'testmode_yn': 'Y',
         }
 
         response = requests.post('https://apis.aligo.in/send/', data=sms_data)
@@ -100,14 +110,28 @@ class VerifyCodeView(APIView):
     def post(self, request):
         phone_number = request.data.get('phone')
         entered_code = request.data.get('code')
+        code_type = request.data.get('type')  # 'signup' 또는 'findidpw' 값을 가질 수 있음
 
-        if not phone_number or not entered_code:
-            return Response({'success': False, 'message': '전화번호와 인증 번호를 입력해주세요.'}, status=status.HTTP_400_BAD_REQUEST)
+        if not phone_number or not entered_code or not code_type:
+            return Response({'success': False, 'message': '전화번호, 인증 번호를 입력해주세요.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        # 저장된 인증 번호 가져오기
-        saved_code = cache.get(f'verification_code_{phone_number}')
+        cache_key = f'{code_type}_verification_code_{phone_number}'
+        saved_code = cache.get(cache_key)
 
         if saved_code and saved_code == entered_code:
-            return Response({'success': True, 'message': '인증이 완료되었습니다.'})
+            if code_type == 'findidpw':
+                try:
+                    user = User.objects.get(phone=phone_number)
+                    return Response({
+                        'success': True,
+                        'message': '인증이 완료되었습니다.',
+                        'user_id': user.username,
+                        'user_password' : user.password,
+                        'date_joined': user.dateJoined.strftime('%Y.%m.%d')
+                    }, status=status.HTTP_200_OK)
+                except User.DoesNotExist:
+                    return Response({'success': False, 'message': '해당 전화번호로 등록된 사용자가 없습니다.'}, status=status.HTTP_404_NOT_FOUND)
+            else:
+                return Response({'success': True, 'message': '회원가입 인증이 완료되었습니다.'}, status=status.HTTP_200_OK)
         else:
             return Response({'success': False, 'message': '인증 번호가 일치하지 않습니다.'}, status=status.HTTP_400_BAD_REQUEST)

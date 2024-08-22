@@ -1,22 +1,12 @@
 from pathlib import Path
+from datetime import timedelta
 
-# Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-
-# Quick-start development settings - unsuitable for production
-# See https://docs.djangoproject.com/en/5.0/howto/deployment/checklist/
-
-# SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = 'django-insecure-bl+h4@5)xa&+r1fk(va7y6js$xhrgj_jsvoh(bh=*xzqpu)t88'
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
-
-ALLOWED_HOSTS = []
-
-
-# Application definition
+DEBUG = True  # 개발 시에는 True, 배포 시에는 False로 변경
+ALLOWED_HOSTS = ['*']  # 개발 시에는 *, 배포 시에는 도메인만 허용
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -25,9 +15,11 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'rest_framework',  # Django REST Framework
-    'faq',             # FAQ 앱
+    'rest_framework',
+    'faq',
     'corsheaders',
+    'django.core.files',
+
 ]
 
 MIDDLEWARE = [
@@ -40,8 +32,14 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
+
 CORS_ALLOWED_ORIGINS = [
-    'http://localhost:3000',  # React 개발 서버 주소
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+]
+
+AUTHENTICATION_BACKENDS = [
+    'django.contrib.auth.backends.ModelBackend',
 ]
 
 ROOT_URLCONF = 'faq_backend.urls'
@@ -64,9 +62,7 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'faq_backend.wsgi.application'
 
-APPEND_SLASH = False # URL 끝에 슬래시(/)가 없더라도 연결
-# Database
-# https://docs.djangoproject.com/en/5.0/ref/settings/#databases
+APPEND_SLASH = False
 
 DATABASES = {
     'default': {
@@ -74,10 +70,6 @@ DATABASES = {
         'NAME': BASE_DIR / 'db.sqlite3',
     }
 }
-
-
-# Password validation
-# https://docs.djangoproject.com/en/5.0/ref/settings/#auth-password-validators
 
 AUTH_PASSWORD_VALIDATORS = [
     {
@@ -94,30 +86,41 @@ AUTH_PASSWORD_VALIDATORS = [
     },
 ]
 
-
-# Internationalization
-# https://docs.djangoproject.com/en/5.0/topics/i18n/
-
 LANGUAGE_CODE = 'ko-kr'
-
 TIME_ZONE = 'Asia/Seoul'
-
 USE_I18N = True
-
 USE_TZ = True
-
-
-# Static files (CSS, JavaScript, Images)
-# https://docs.djangoproject.com/en/5.0/howto/static-files/
 
 STATIC_URL = 'static/'
 
-# Default primary key field type
-# https://docs.djangoproject.com/en/5.0/ref/settings/#default-auto-field
-
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-# 알리고 API 정보 설정
 ALIGO_API_KEY = '62gc6m7eoffzxzwaace2ohdc5nhikoyi'
 ALIGO_USER_ID = 'jobshopper'
-ALIGO_SENDER = '02-6951-1510'  # 발신자 번호, 알리고에 등록된 번호여야 함
+ALIGO_SENDER = '02-6951-1510'
+
+SIMPLE_JWT = {
+    'USER_ID_FIELD': 'user_id',
+    'USER_ID_CLAIM': 'user_id',
+    'AUTH_HEADER_TYPES': ('Bearer',),
+    'ACCESS_TOKEN_LIFETIME': timedelta(hours=2),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
+    'ROTATE_REFRESH_TOKENS': True,
+    'BLACKLIST_AFTER_ROTATION': True,
+}
+
+AUTH_USER_MODEL = 'faq.User'
+
+SESSION_COOKIE_AGE = 1209600  # 2주 동안 세션 유지
+SESSION_SAVE_EVERY_REQUEST = True  # 모든 요청마다 세션 갱신
+
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': (
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+    ),
+    # 기본으로는 인증이 필요하지 않게 설정
+    'DEFAULT_PERMISSION_CLASSES': (
+        'rest_framework.permissions.AllowAny',
+    ),
+}
+

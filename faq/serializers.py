@@ -1,5 +1,6 @@
 from rest_framework import serializers
-from .models import User, Store
+from .models import User, Store, Edit  # Edit 모델로 변경
+from django.contrib.auth.hashers import make_password
 
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
@@ -8,10 +9,9 @@ class UserSerializer(serializers.ModelSerializer):
         extra_kwargs = {'password': {'write_only': True}}
 
     def create(self, validated_data):
-        # 비밀번호를 해싱하지 않고 그대로 저장하는 예시 (실제로는 해싱해야 안전함)
         user = User(
             username=validated_data['username'],
-            password=validated_data['password'],  # 비밀번호를 그대로 저장
+            password=make_password(validated_data['password']),  # 비밀번호를 해시하여 저장
             name=validated_data.get('name'),
             dob=validated_data.get('dob'),
             phone=validated_data.get('phone'),
@@ -29,6 +29,12 @@ class StoreSerializer(serializers.ModelSerializer):
 class LoginSerializer(serializers.Serializer):
     username = serializers.CharField()
     password = serializers.CharField()
-    
+
 class UsernameCheckSerializer(serializers.Serializer):
     username = serializers.CharField()
+
+# EditSerializer 추가
+class EditSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Edit
+        fields = ['id', 'user', 'title', 'content', 'file', 'created_at']

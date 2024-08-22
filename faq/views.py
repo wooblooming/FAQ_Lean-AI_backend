@@ -1,12 +1,17 @@
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from .serializers import UserSerializer,StoreSerializer , LoginSerializer, UsernameCheckSerializer
-from .models import User, Store
+from rest_framework_simplejwt.tokens import RefreshToken
+from django.contrib.auth.hashers import check_password
+from .serializers import UserSerializer, StoreSerializer, LoginSerializer, UsernameCheckSerializer, StoreSerializer, EditSerializer
+from .models import User, Store, Edit
 from django.core.cache import cache
 import requests
 import random
 from django.conf import settings
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.generics import ListAPIView
+from rest_framework.exceptions import NotAuthenticated
 
 class SignupView(APIView):
     def post(self, request):
@@ -44,21 +49,24 @@ class SignupView(APIView):
         
 class LoginView(APIView):
     def post(self, request):
-        serializer = LoginSerializer(data=request.data)
-        if serializer.is_valid():
-            username = serializer.validated_data['username']
-            password = serializer.validated_data['password']
-
-            try:
-                user = User.objects.get(username=username)
-                if user.password == password:
-                    return Response({'success': True, 'message': 'Login successful'}, status=status.HTTP_200_OK)
-            except User.DoesNotExist:
-                pass
-            
-            return Response({'success': False, 'message': 'Invalid credentials'}, status=status.HTTP_401_UNAUTHORIZED)
+        username = request.data.get('username')
+        password = request.data.get('password')
         
-        return Response({'success': False, 'message': 'Invalid data'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            user = User.objects.get(username=username)
+            
+            if check_password(password, user.password):
+                # JWT 토큰 생성
+                refresh = RefreshToken.for_user(user)
+                return Response({
+                    'refresh': str(refresh),
+                    'access': str(refresh.access_token),
+                }, status=status.HTTP_200_OK)
+            else:
+                return Response({"error": "Invalid credentials"}, status=status.HTTP_401_UNAUTHORIZED)
+
+        except User.DoesNotExist:
+            return Response({"error": "Invalid credentials"}, status=status.HTTP_401_UNAUTHORIZED)
 
     
 class UsernameCheckView(APIView):
@@ -67,7 +75,7 @@ class UsernameCheckView(APIView):
         if serializer.is_valid():
             username = serializer.validated_data['username']
             if User.objects.filter(username=username).exists():
-                return Response({'is_duplicate': True, 'message': 'This username is already taken.'}, status=status.HTTP_200_OK)
+                return Response({'is_duplicate': True, 'message': 'This username is already taken.'}, status=status.HTTP_409_CONFLICT)
             else:
                 return Response({'is_duplicate': False, 'message': 'This username is available.'}, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -135,3 +143,42 @@ class VerifyCodeView(APIView):
                 return Response({'success': True, 'message': '회원가입 인증이 완료되었습니다.'}, status=status.HTTP_200_OK)
         else:
             return Response({'success': False, 'message': '인증 번호가 일치하지 않습니다.'}, status=status.HTTP_400_BAD_REQUEST)
+        
+class UserStoresView(ListAPIView):
+    serializer_class = StoreSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+
+        # 사용자 인증 여부 확인
+        if not user.is_authenticated:
+            raise NotAuthenticated("사용자가 인증되지 않았습니다.")
+
+        # 인증된 사용자의 스토어 목록을 반환
+        return Store.objects.filter(user=user)
+
+    def handle_exception(self, exc):
+        # 인증되지 않은 사용자에 대한 예외 처리
+        if isinstance(exc, NotAuthenticated):
+            return Response({'error': str(exc)}, status=status.HTTP_401_UNAUTHORIZED)
+        return super().handle_exception(exc)
+    
+class EditView(APIView):
+    permission_classes = [IsAuthenticated]  # 인증된 사용자만 접근 가능
+
+    def post(self, request):
+        # Edit 데이터를 받아옵니다.
+        data = {
+            'user': request.user.user_id,  # 현재 요청을 보낸 사용자 ID를 저장
+            'title': request.data.get('title', ''),  # 기본값으로 빈 문자열
+            'content': request.data.get('content', ''),  # 기본값으로 빈 문자열
+            'file': request.data.get('file', None)  # 파일이 없을 수도 있음
+        }
+
+        # Edit 생성 및 검증
+        edit_serializer = EditSerializer(data=data)
+        if edit_serializer.is_valid():
+            edit_serializer.save()
+            return Response(edit_serializer.data, status=status.HTTP_201_CREATED)
+        return Response(edit_serializer.errors, status=status.HTTP_400_BAD_REQUEST)

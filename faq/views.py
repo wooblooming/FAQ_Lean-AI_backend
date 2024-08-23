@@ -144,20 +144,17 @@ class VerifyCodeView(APIView):
         else:
             return Response({'success': False, 'message': '인증 번호가 일치하지 않습니다.'}, status=status.HTTP_400_BAD_REQUEST)
         
-class UserStoresView(ListAPIView):
-    serializer_class = StoreSerializer
+class UserStoresView(APIView):
     permission_classes = [IsAuthenticated]
-
-    def get_queryset(self):
-        user = self.request.user
-
+    def post(self, request):
+        user = request.user
         # 사용자 인증 여부 확인
         if not user.is_authenticated:
             raise NotAuthenticated("사용자가 인증되지 않았습니다.")
-
         # 인증된 사용자의 스토어 목록을 반환
-        return Store.objects.filter(user=user)
-
+        stores = Store.objects.filter(user=user)
+        serializer = StoreSerializer(stores, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
     def handle_exception(self, exc):
         # 인증되지 않은 사용자에 대한 예외 처리
         if isinstance(exc, NotAuthenticated):

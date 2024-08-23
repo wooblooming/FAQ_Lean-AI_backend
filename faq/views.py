@@ -3,14 +3,13 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth.hashers import check_password
-from .serializers import UserSerializer, StoreSerializer, LoginSerializer, UsernameCheckSerializer, StoreSerializer, EditSerializer
+from .serializers import UserSerializer, StoreSerializer, LoginSerializer, UsernameCheckSerializer, EditSerializer
 from .models import User, Store, Edit
 from django.core.cache import cache
 import requests
 import random
 from django.conf import settings
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.generics import ListAPIView
 from rest_framework.exceptions import NotAuthenticated
 
 class SignupView(APIView):
@@ -75,7 +74,7 @@ class UsernameCheckView(APIView):
         if serializer.is_valid():
             username = serializer.validated_data['username']
             if User.objects.filter(username=username).exists():
-                return Response({'is_duplicate': True, 'message': 'This username is already taken.'}, status=status.HTTP_200_OK)
+                return Response({'is_duplicate': True, 'message': 'This username is already taken.'}, status=status.HTTP_409_CONFLICT)
             else:
                 return Response({'is_duplicate': False, 'message': 'This username is available.'}, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -194,8 +193,6 @@ class UserStoresView(APIView):
         if isinstance(exc, NotAuthenticated):
             return Response({'error': str(exc)}, status=status.HTTP_401_UNAUTHORIZED)
         return super().handle_exception(exc)
-
-
 
     
 class EditView(APIView):

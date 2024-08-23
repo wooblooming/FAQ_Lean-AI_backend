@@ -117,6 +117,7 @@ SESSION_SAVE_EVERY_REQUEST = True  # 모든 요청마다 세션 갱신
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
+        'rest_framework.authentication.SessionAuthentication',
     ),
     # 기본으로는 인증이 필요하지 않게 설정
     'DEFAULT_PERMISSION_CLASSES': (

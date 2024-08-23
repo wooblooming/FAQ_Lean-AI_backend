@@ -1,5 +1,6 @@
 from pathlib import Path
 from datetime import timedelta
+import os
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -7,6 +8,9 @@ SECRET_KEY = 'django-insecure-bl+h4@5)xa&+r1fk(va7y6js$xhrgj_jsvoh(bh=*xzqpu)t88
 
 DEBUG = True  # 개발 시에는 True, 배포 시에는 False로 변경
 ALLOWED_HOSTS = ['*']  # 개발 시에는 *, 배포 시에는 도메인만 허용
+
+MEDIA_URL = '/media/'
+MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -20,7 +24,6 @@ INSTALLED_APPS = [
     'corsheaders',
     'django.core.files',
     'chatbot',
-
 ]
 
 MIDDLEWARE = [
@@ -120,9 +123,7 @@ REST_FRAMEWORK = {
         'rest_framework_simplejwt.authentication.JWTAuthentication',
         'rest_framework.authentication.SessionAuthentication',
     ),
-    # 기본으로는 인증이 필요하지 않게 설정
     'DEFAULT_PERMISSION_CLASSES': (
         'rest_framework.permissions.AllowAny',
     ),
 }
-

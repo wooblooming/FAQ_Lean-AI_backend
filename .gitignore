@@ -283,5 +283,8 @@ pyrightconfig.json
 # uplaods
 uplaods/
 
+# 유저 사진정보
+media/banners/
 # dialogflow 서비스 키
 chatbot/lean-ai-faq-54a04f14f2f0.json
+

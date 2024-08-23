@@ -47,7 +47,7 @@ class Store(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='stores')  # User 모델과의 외래 키 참조
     store_name = models.CharField(max_length=20, unique=True)
     store_address = models.CharField(max_length=100, blank=True, null=True)
-    banner = models.TextField(blank=True, null=True)
+    banner = models.ImageField(upload_to='banners/', blank=True, null=True)  # ImageField로 변경
     menu_price = models.TextField(blank=True, null=True)
     opening_hours = models.TextField(blank=True, null=True)
     qr_code = models.CharField(max_length=100, blank=True, null=True)

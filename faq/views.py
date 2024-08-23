@@ -3,14 +3,13 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth.hashers import check_password
-from .serializers import UserSerializer, StoreSerializer, LoginSerializer, UsernameCheckSerializer, StoreSerializer, EditSerializer
+from .serializers import UserSerializer, StoreSerializer, LoginSerializer, UsernameCheckSerializer, EditSerializer
 from .models import User, Store, Edit
 from django.core.cache import cache
 import requests
 import random
 from django.conf import settings
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.generics import ListAPIView
 from rest_framework.exceptions import NotAuthenticated
 
 class SignupView(APIView):
@@ -146,20 +145,55 @@ class VerifyCodeView(APIView):
         
 class UserStoresView(APIView):
     permission_classes = [IsAuthenticated]
+
     def post(self, request):
         user = request.user
-        # 사용자 인증 여부 확인
-        if not user.is_authenticated:
-            raise NotAuthenticated("사용자가 인증되지 않았습니다.")
-        # 인증된 사용자의 스토어 목록을 반환
         stores = Store.objects.filter(user=user)
         serializer = StoreSerializer(stores, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
+    
+    def get(self, request, store_id=None):
+        user = request.user
+        try:
+            store_id = request.query_params.get('store_id', store_id)  # URL 또는 쿼리 파라미터에서 store_id 가져오기
+            if store_id:
+                store = Store.objects.get(store_id=store_id, user=user)
+            else:
+                store = Store.objects.filter(user=user).first()
+            
+            if store:
+                serializer = StoreSerializer(store)
+                return Response(serializer.data, status=status.HTTP_200_OK)
+            else:
+                return Response({"error": "Store not found."}, status=status.HTTP_404_NOT_FOUND)
+        except Store.DoesNotExist:
+            return Response({"error": "Store not found for the logged-in user."}, status=status.HTTP_404_NOT_FOUND)
+    
+    def put(self, request, store_id=None):
+        user = request.user
+        try:
+            store_id = request.query_params.get('store_id', store_id)  # URL 또는 쿼리 파라미터에서 store_id 가져오기
+            if store_id:
+                store = Store.objects.get(store_id=store_id, user=user)
+                serializer = StoreSerializer(store, data=request.data, partial=True)
+                
+                if serializer.is_valid():
+                    serializer.save()
+                    return Response(serializer.data, status=status.HTTP_200_OK)
+                else:
+                    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            else:
+                return Response({"error": "Store ID is required for updates."}, status=status.HTTP_400_BAD_REQUEST)
+        except Store.DoesNotExist:
+            return Response({"error": "Store not found for the logged-in user."}, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
     def handle_exception(self, exc):
-        # 인증되지 않은 사용자에 대한 예외 처리
         if isinstance(exc, NotAuthenticated):
             return Response({'error': str(exc)}, status=status.HTTP_401_UNAUTHORIZED)
         return super().handle_exception(exc)
+
     
 class EditView(APIView):
     permission_classes = [IsAuthenticated]  # 인증된 사용자만 접근 가능

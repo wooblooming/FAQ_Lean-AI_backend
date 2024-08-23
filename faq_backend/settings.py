@@ -19,6 +19,7 @@ INSTALLED_APPS = [
     'faq',
     'corsheaders',
     'django.core.files',
+    'chatbot',
 
 ]
 

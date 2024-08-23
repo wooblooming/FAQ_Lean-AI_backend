@@ -6,6 +6,7 @@ from google.oauth2 import service_account
 from googleapiclient.discovery import build
 import json
 import os
+import uuid  # UUID 모듈을 import
 
 # BASE_DIR은 프로젝트의 루트 디렉토리를 나타냄
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -34,9 +35,6 @@ class DialogflowRequestView(View):
             print(f"Received user message: {user_message}")
 
             # Dialogflow CX API 클라이언트 생성
-            # api endpoint 설정시 location-id와 일치시켜야 함 
-            # location이 global인 경우 api-endpoint 없어도 됨!!
-            
             try:
                 service = build('dialogflow', 'v3', credentials=credentials, client_options={
                     'api_endpoint': 'https://asia-northeast1-dialogflow.googleapis.com'
@@ -46,18 +44,17 @@ class DialogflowRequestView(View):
                 print(f"Failed to create Dialogflow CX service: {str(e)}")
                 return JsonResponse({"error": "Failed to create Dialogflow CX service."}, status=500)
 
-            # 고정된 세션 ID를 사용 (여기서는 'my_fixed_session_id'로 고정)
-            session_id = 'my_fixed_session_id'
+            # UUID를 사용하여 고유한 세션 ID 생성
+            session_id = str(uuid.uuid4())
             print(f"Using session ID: {session_id}")
             
             # Google Cloud 프로젝트 ID 및 위치
             project_id = 'lean-ai-faq'
-            location_id = 'asia-northeast1'  # 또는 해당하는 위치 (예: 'us-central1')
-            agent_id = '32293af4-f3fd-4102-8416-169801a34840'  # Dialogflow CX 에이전트 ID
+            location_id = 'asia-northeast1'
+            agent_id = '32293af4-f3fd-4102-8416-169801a34840'
             print(f"Using project ID: {project_id}")
 
             # Dialogflow CX의 detectIntent 메소드 호출
-            # 사용자의 메시지를 Dialogflow CX로 전송하여 의도를 감지하고, 응답을 받음
             try:
                 session_path = f'projects/{project_id}/locations/{location_id}/agents/{agent_id}/sessions/{session_id}'
                 response = service.projects().locations().agents().sessions().detectIntent(
@@ -72,20 +69,34 @@ class DialogflowRequestView(View):
                     }
                 ).execute()
                 print("Detect intent request sent successfully.")
+
             except Exception as e:
                 print(f"Failed to detect intent: {str(e)}")
                 return JsonResponse({"error": "Failed to detect intent."}, status=500)
 
-            # Dialogflow CX의 응답에서 결과(fulfillmentText)를 추출
+            # Dialogflow CX의 응답에서 결과(fulfillmentText)와 chips(suggestions)를 추출
             try:
                 bot_response = response.get('queryResult').get('responseMessages')[0].get('text').get('text')[0]
                 print(f"Received bot response: {bot_response}")
+
+                suggestions = []
+                for message in response.get('queryResult').get('responseMessages', []):
+                    if 'payload' in message:
+                        rich_content = message['payload'].get('richContent', [])
+                        for content_list in rich_content:
+                            for content in content_list:
+                                if content['type'] == 'chips':
+                                    for option in content.get('options', []):
+                                        suggestions.append(option['text'])
+
+                print(f"Received suggestions: {suggestions}")
+
             except Exception as e:
                 print(f"Failed to parse Dialogflow CX response: {str(e)}")
                 return JsonResponse({"error": "Failed to parse Dialogflow CX response."}, status=500)
 
-            # 응답을 JSON 형태로 클라이언트에 반환
-            return JsonResponse({"response": bot_response})
+            # 응답을 JSON 형태로 클라이언트에 반환 (응답 텍스트와 함께 chips를 포함)
+            return JsonResponse({"response": bot_response, "chips": suggestions})
 
         except Exception as e:
             # 오류 발생 시 콘솔에 에러 메시지를 출력하고, 클라이언트에 에러 메시지와 함께 500 상태 코드를 반환

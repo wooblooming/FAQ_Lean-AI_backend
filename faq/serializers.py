@@ -26,6 +26,14 @@ class StoreSerializer(serializers.ModelSerializer):
         model = Store
         fields = ['store_id', 'user', 'store_name', 'store_address', 'banner', 'menu_price', 'opening_hours', 'qr_code', 'updated_at']
 
+    def validate_banner(self, value):
+        if not value:
+            raise serializers.ValidationError("Banner image is required.")
+        if not isinstance(value, str) and not value.name.endswith(('.png', '.jpg', '.jpeg')):
+            raise serializers.ValidationError("Invalid image format. Only .png, .jpg, .jpeg files are allowed.")
+        return value
+
+
 class LoginSerializer(serializers.Serializer):
     username = serializers.CharField()
     password = serializers.CharField()

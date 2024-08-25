@@ -12,6 +12,8 @@ from django.conf import settings
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.generics import ListAPIView
 from rest_framework.exceptions import NotAuthenticated
+from django.contrib.auth.hashers import make_password
+
 
 class SignupView(APIView):
     def post(self, request):
@@ -75,7 +77,7 @@ class UsernameCheckView(APIView):
         if serializer.is_valid():
             username = serializer.validated_data['username']
             if User.objects.filter(username=username).exists():
-                return Response({'is_duplicate': True, 'message': 'This username is already taken.'}, status=status.HTTP_200_OK)
+                return Response({'is_duplicate': True, 'message': 'This username is already taken.'}, status=status.HTTP_409_CONFLICT)
             else:
                 return Response({'is_duplicate': False, 'message': 'This username is available.'}, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -135,7 +137,7 @@ class VerifyCodeView(APIView):
                         'message': '인증이 완료되었습니다.',
                         'user_id': user.username,
                         'user_password' : user.password,
-                        'date_joined': user.dateJoined.strftime('%Y.%m.%d')
+                        'date_joined': user.created_at.strftime('%Y.%m.%d')
                     }, status=status.HTTP_200_OK)
                 except User.DoesNotExist:
                     return Response({'success': False, 'message': '해당 전화번호로 등록된 사용자가 없습니다.'}, status=status.HTTP_404_NOT_FOUND)
@@ -143,54 +145,37 @@ class VerifyCodeView(APIView):
                 return Response({'success': True, 'message': '회원가입 인증이 완료되었습니다.'}, status=status.HTTP_200_OK)
         else:
             return Response({'success': False, 'message': '인증 번호가 일치하지 않습니다.'}, status=status.HTTP_400_BAD_REQUEST)
-        
+
+class PasswordResetView(APIView):
+    def post(self, request):
+        phone_number = request.data.get('phone')
+        new_password = request.data.get('new_password')
+
+        if not phone_number or not new_password:
+            return Response({'success': False, 'message': '전화번호와 새 비밀번호를 입력해주세요.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            user = User.objects.get(phone=phone_number)
+            user.password = make_password(new_password)
+            user.save()
+
+            return Response({'success': True, 'message': '비밀번호가 성공적으로 변경되었습니다.'}, status=status.HTTP_200_OK)
+        except User.DoesNotExist:
+            return Response({'success': False, 'message': '해당 전화번호로 등록된 사용자가 없습니다.'}, status=status.HTTP_404_NOT_FOUND)
+
 class UserStoresView(APIView):
     permission_classes = [IsAuthenticated]
-
     def post(self, request):
         user = request.user
+        # 사용자 인증 여부 확인
+        if not user.is_authenticated:
+            raise NotAuthenticated("사용자가 인증되지 않았습니다.")
+        # 인증된 사용자의 스토어 목록을 반환
         stores = Store.objects.filter(user=user)
         serializer = StoreSerializer(stores, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
-    
-    def get(self, request, store_id=None):
-        user = request.user
-        try:
-            store_id = request.query_params.get('store_id', store_id)  # URL 또는 쿼리 파라미터에서 store_id 가져오기
-            if store_id:
-                store = Store.objects.get(store_id=store_id, user=user)
-            else:
-                store = Store.objects.filter(user=user).first()
-            
-            if store:
-                serializer = StoreSerializer(store)
-                return Response(serializer.data, status=status.HTTP_200_OK)
-            else:
-                return Response({"error": "Store not found."}, status=status.HTTP_404_NOT_FOUND)
-        except Store.DoesNotExist:
-            return Response({"error": "Store not found for the logged-in user."}, status=status.HTTP_404_NOT_FOUND)
-    
-    def put(self, request, store_id=None):
-        user = request.user
-        try:
-            store_id = request.query_params.get('store_id', store_id)  # URL 또는 쿼리 파라미터에서 store_id 가져오기
-            if store_id:
-                store = Store.objects.get(store_id=store_id, user=user)
-                serializer = StoreSerializer(store, data=request.data, partial=True)
-                
-                if serializer.is_valid():
-                    serializer.save()
-                    return Response(serializer.data, status=status.HTTP_200_OK)
-                else:
-                    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-            else:
-                return Response({"error": "Store ID is required for updates."}, status=status.HTTP_400_BAD_REQUEST)
-        except Store.DoesNotExist:
-            return Response({"error": "Store not found for the logged-in user."}, status=status.HTTP_404_NOT_FOUND)
-        except Exception as e:
-            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-    
     def handle_exception(self, exc):
+        # 인증되지 않은 사용자에 대한 예외 처리
         if isinstance(exc, NotAuthenticated):
             return Response({'error': str(exc)}, status=status.HTTP_401_UNAUTHORIZED)
         return super().handle_exception(exc)

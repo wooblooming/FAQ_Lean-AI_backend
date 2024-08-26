@@ -242,3 +242,20 @@ class UserProfilePhotoUpdateView(APIView):
             return Response({"message": "프로필 사진이 성공적으로 업데이트되었습니다."}, status=status.HTTP_200_OK)
         else:
             return Response({"error": "파일이 제공되지 않았습니다."}, status=status.HTTP_400_BAD_REQUEST)
+        
+class CustomerStoreView(APIView):
+    def post(self, request):
+        store_id = request.data.get('store_id')
+        if not store_id:
+            return Response({'error': 'Store ID is required'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            store = Store.objects.get(store_id=store_id)  # store_id 필드를 사용하여 매장 조회
+        except Store.DoesNotExist:
+            return Response({'error': 'Store not found'}, status=status.HTTP_404_NOT_FOUND)
+        store_data = {
+            'store_name': store.store_name,
+            'store_image': store.banner.url if store.banner else '',  # banner 필드 사용
+            'store_hours': store.opening_hours,  # opening_hours 필드 사용
+            'menu_prices': store.menu_price,  # menu_price 필드 사용
+        }
+        return Response(store_data, status=status.HTTP_200_OK)

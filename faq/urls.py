@@ -5,7 +5,7 @@ from .views import (
     SignupView, LoginView, UsernameCheckView, 
     SendVerificationCodeView, VerifyCodeView, 
     UserStoresListView, UserStoreDetailView, 
-    EditView, PasswordResetView, UserProfileView, UserProfilePhotoUpdateView
+    EditView, PasswordResetView, UserProfileView, UserProfilePhotoUpdateView, CustomerStoreView
 )
 
 urlpatterns = [
@@ -20,5 +20,6 @@ urlpatterns = [
     path('reset-password/', PasswordResetView.as_view(), name='reset-password'),
     path('user-profile/', UserProfileView.as_view(), name='user-profile'),
     path('update-profile-photo/', UserProfilePhotoUpdateView.as_view(), name='update-profile-photo'),
+    path('storesinfo/', CustomerStoreView.as_view(), name='store_info'),
     
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

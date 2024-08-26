@@ -205,3 +205,40 @@ class EditView(APIView):
             edit_serializer.save()
             return Response(edit_serializer.data, status=status.HTTP_201_CREATED)
         return Response(edit_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class UserProfileView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+        
+        if user.profile_photo:
+            profile_photo_url = request.build_absolute_uri(user.profile_photo.url)
+        else:
+            # profile_photos 디렉토리 내의 기본 이미지를 정확히 지정
+            profile_photo_url = request.build_absolute_uri('/media/profile_photos/user_img.jpg')
+        
+        return Response({
+            'user_id': user.user_id,
+            'name': user.name,
+            'profile_photo': profile_photo_url,
+        })
+
+class UserProfilePhotoUpdateView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+        profile_photo = request.FILES.get('profile_photo')
+        profile_photo_url = request.data.get('profile_photo')  # 문자열 경로도 허용
+
+        if profile_photo:
+            user.profile_photo = profile_photo  # 파일로 업로드된 경우
+        elif profile_photo_url:
+            user.profile_photo = profile_photo_url  # 문자열 경로로 전달된 경우
+
+        if profile_photo or profile_photo_url:
+            user.save()
+            return Response({"message": "프로필 사진이 성공적으로 업데이트되었습니다."}, status=status.HTTP_200_OK)
+        else:
+            return Response({"error": "파일이 제공되지 않았습니다."}, status=status.HTTP_400_BAD_REQUEST)

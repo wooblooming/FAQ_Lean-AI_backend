@@ -27,7 +27,7 @@ class User(AbstractBaseUser):
     dob = models.DateField(blank=True, null=True)  # 생년월일
     phone = models.CharField(max_length=20, unique=True)
     email = models.EmailField(max_length=30, blank=True, null=True)
-    profile_photo = models.TextField(blank=True, null=True)
+    profile_photo = models.ImageField(upload_to='profile_photos/', blank=True, null=True)  # ImageField로 변경
     created_at = models.DateTimeField(auto_now_add=True)
 
     is_active = models.BooleanField(default=True)

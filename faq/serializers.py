@@ -32,6 +32,7 @@ class StoreSerializer(serializers.ModelSerializer):
         if not isinstance(value, str) and not value.name.endswith(('.png', '.jpg', '.jpeg')):
             raise serializers.ValidationError("Invalid image format. Only .png, .jpg, .jpeg files are allowed.")
         return value
+    
 class LoginSerializer(serializers.Serializer):
     username = serializers.CharField()
     password = serializers.CharField()

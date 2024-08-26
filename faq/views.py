@@ -163,22 +163,29 @@ class PasswordResetView(APIView):
         except User.DoesNotExist:
             return Response({'success': False, 'message': '해당 전화번호로 등록된 사용자가 없습니다.'}, status=status.HTTP_404_NOT_FOUND)
 
-class UserStoresView(APIView):
+class UserStoresListView(APIView):
     permission_classes = [IsAuthenticated]
+
     def post(self, request):
         user = request.user
-        # 사용자 인증 여부 확인
-        if not user.is_authenticated:
-            raise NotAuthenticated("사용자가 인증되지 않았습니다.")
-        # 인증된 사용자의 스토어 목록을 반환
         stores = Store.objects.filter(user=user)
         serializer = StoreSerializer(stores, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
-    def handle_exception(self, exc):
-        # 인증되지 않은 사용자에 대한 예외 처리
-        if isinstance(exc, NotAuthenticated):
-            return Response({'error': str(exc)}, status=status.HTTP_401_UNAUTHORIZED)
-        return super().handle_exception(exc)
+
+class UserStoreDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def put(self, request, store_id):
+        try:
+            store = Store.objects.get(pk=store_id, user=request.user)
+        except Store.DoesNotExist:
+            return Response({'error': '스토어를 찾을 수 없습니다.'}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = StoreSerializer(store, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
 class EditView(APIView):
     permission_classes = [IsAuthenticated]  # 인증된 사용자만 접근 가능

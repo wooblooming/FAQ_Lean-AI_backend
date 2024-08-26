@@ -290,3 +290,5 @@ media/uplaods/
 # dialogflow 서비스 키
 chatbot/lean-ai-faq-54a04f14f2f0.json
 
+# 환경 변수
+.env.local

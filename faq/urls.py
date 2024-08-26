@@ -5,7 +5,7 @@ from .views import (
     SignupView, LoginView, UsernameCheckView, 
     SendVerificationCodeView, VerifyCodeView, 
     UserStoresListView, UserStoreDetailView, 
-    EditView, PasswordResetView
+    EditView, PasswordResetView, UserProfileView, UserProfilePhotoUpdateView
 )
 
 urlpatterns = [
@@ -17,5 +17,8 @@ urlpatterns = [
     path('user-stores/', UserStoresListView.as_view(), name='user-stores'),  # 모든 스토어
     path('user-stores/<int:store_id>/', UserStoreDetailView.as_view(), name='user-store-detail'),  # 특정 스토어
     path('edit/', EditView.as_view(), name='edit-request'),
-    path('reset-password/', PasswordResetView.as_view(), name='reset-password')
+    path('reset-password/', PasswordResetView.as_view(), name='reset-password'),
+    path('user-profile/', UserProfileView.as_view(), name='user-profile'),
+    path('update-profile-photo/', UserProfilePhotoUpdateView.as_view(), name='update-profile-photo'),
+    
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

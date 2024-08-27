@@ -51,6 +51,7 @@ class Store(models.Model):
     menu_price = models.TextField(blank=True, null=True)
     opening_hours = models.TextField(blank=True, null=True)
     qr_code = models.CharField(max_length=100, blank=True, null=True)
+    agent_info = models.JSONField(blank=True, null=True)  # JSONField 추가
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):

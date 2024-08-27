@@ -7,7 +7,8 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = 'django-insecure-bl+h4@5)xa&+r1fk(va7y6js$xhrgj_jsvoh(bh=*xzqpu)t88'
 
 DEBUG = True  # 개발 시에는 True, 배포 시에는 False로 변경
-ALLOWED_HOSTS = ['*']  # 개발 시에는 *, 배포 시에는 도메인만 허용
+ALLOWED_HOSTS = ['4.230.17.234', 'localhost', '127.0.0.1']  # 개발 시에는 *, 배포 시에는 도메인만 허용
+# ALLOWED_HOSTS = ['*']
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
@@ -40,6 +41,7 @@ MIDDLEWARE = [
 CORS_ALLOWED_ORIGINS = [
     'http://localhost:3000',
     'http://127.0.0.1:3000',
+    'http://4.230.17.234:3000',
 ]
 
 AUTHENTICATION_BACKENDS = [

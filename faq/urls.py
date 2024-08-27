@@ -5,7 +5,8 @@ from .views import (
     SignupView, LoginView, UsernameCheckView, 
     SendVerificationCodeView, VerifyCodeView, 
     UserStoresListView, UserStoreDetailView, 
-    EditView, PasswordResetView, UserProfileView, UserProfilePhotoUpdateView, CustomerStoreView
+    EditView, PasswordResetView, UserProfileView,
+    UserProfilePhotoUpdateView, CustomerStoreView,
 )
 
 urlpatterns = [

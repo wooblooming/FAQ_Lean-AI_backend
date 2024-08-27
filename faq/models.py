@@ -44,14 +44,14 @@ class User(AbstractBaseUser):
 
 class Store(models.Model):
     store_id = models.AutoField(primary_key=True)
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='stores')  # User 모델과의 외래 키 참조
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='stores')
     store_name = models.CharField(max_length=20, unique=True)
     store_address = models.CharField(max_length=100, blank=True, null=True)
-    banner = models.ImageField(upload_to='banners/', blank=True, null=True)  # ImageField로 변경
+    banner = models.ImageField(upload_to='banners/', blank=True, null=True)
     menu_price = models.TextField(blank=True, null=True)
     opening_hours = models.TextField(blank=True, null=True)
     qr_code = models.CharField(max_length=100, blank=True, null=True)
-    agent_id = models.CharField(max_length=100, blank=True, null=True)  # JSONField 추가
+    agent_id = models.CharField(max_length=100, blank=True, null=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):

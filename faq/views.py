@@ -257,5 +257,6 @@ class CustomerStoreView(APIView):
             'store_image': store.banner.url if store.banner else '',  # banner 필드 사용
             'store_hours': store.opening_hours,  # opening_hours 필드 사용
             'menu_prices': store.menu_price,  # menu_price 필드 사용
+            'agent_id' : store.agent_id,
         }
         return Response(store_data, status=status.HTTP_200_OK)

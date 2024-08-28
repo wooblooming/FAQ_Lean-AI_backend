@@ -1,14 +1,23 @@
 from pathlib import Path
 from datetime import timedelta
 import os
+import sys
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-SECRET_KEY = 'django-insecure-bl+h4@5)xa&+r1fk(va7y6js$xhrgj_jsvoh(bh=*xzqpu)t88'
+MY_SETTINGS_PATH = os.path.join(BASE_DIR, 'my_settings.py')
+
+# my_settings.py 파일의 위치를 시스템 경로에 추가합니다.
+sys.path.append(os.path.dirname(MY_SETTINGS_PATH))
+
+# my_settings에서 설정 값을 가져옵니다.
+try:
+    from my_settings import SECRET_KEY, DATABASES, ALIGO_API_KEY, ALIGO_USER_ID, ALIGO_SENDER
+except ImportError:
+    raise ImportError("my_settings.py 파일이 누락되었습니다. 올바르게 설정해 주세요.")
 
 DEBUG = True  # 개발 시에는 True, 배포 시에는 False로 변경
 ALLOWED_HOSTS = ['*']  # 개발 시에는 *, 배포 시에는 도메인만 허용
-# ALLOWED_HOSTS = ['*']
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
@@ -70,12 +79,7 @@ WSGI_APPLICATION = 'faq_backend.wsgi.application'
 
 APPEND_SLASH = False
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
-    }
-}
+# 데이터베이스 설정은 my_settings.py에서 가져옵니다.
 
 AUTH_PASSWORD_VALIDATORS = [
     {
@@ -101,10 +105,7 @@ STATIC_URL = 'static/'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-ALIGO_API_KEY = '62gc6m7eoffzxzwaace2ohdc5nhikoyi'
-ALIGO_USER_ID = 'jobshopper'
-ALIGO_SENDER = '02-6951-1510'
-
+# 외부 API 설정을 my_settings.py에서 가져옵니다.
 SIMPLE_JWT = {
     'USER_ID_FIELD': 'user_id',
     'USER_ID_CLAIM': 'user_id',

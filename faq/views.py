@@ -175,7 +175,13 @@ class UserStoreDetailView(APIView):
         except Store.DoesNotExist:
             return Response({'error': '스토어를 찾을 수 없습니다.'}, status=status.HTTP_404_NOT_FOUND)
 
-        serializer = StoreSerializer(store, data=request.data, partial=True)
+        data = request.data.copy()
+        
+        # banner 필드가 빈 문자열인 경우 null로 변환
+        if 'banner' in data and data['banner'] == '':
+            data['banner'] = None
+
+        serializer = StoreSerializer(store, data=data, partial=True)
         if serializer.is_valid():
             serializer.save()
             return Response(serializer.data, status=status.HTTP_200_OK)
@@ -204,11 +210,9 @@ class UserProfileView(APIView):
     def get(self, request):
         user = request.user
         
-        if user.profile_photo:
-            profile_photo_url = request.build_absolute_uri(user.profile_photo.url)
-        else:
-            profile_photo_url = request.build_absolute_uri('/media/profile_photos/user_img.jpg')
-        
+        # 프로필 이미지가 있는 경우 해당 URL을 반환하고, 없으면 빈 문자열을 반환
+        profile_photo_url = user.profile_photo.url if user.profile_photo else ""
+
         return Response({
             'user_id': user.user_id,
             'name': user.name,
@@ -222,10 +226,12 @@ class UserProfilePhotoUpdateView(APIView):
         user = request.user
         profile_photo_url = request.data.get('profile_photo')
 
-        if not profile_photo_url:
-            return Response({"error": "프로필 사진 URL이 제공되지 않았습니다."}, status=status.HTTP_400_BAD_REQUEST)
-        # 이미지 URL을 사용자 프로필에 저장
-        user.profile_photo = profile_photo_url
+        # 프로필 사진이 빈 문자열인 경우 null로 처리
+        if profile_photo_url == "":
+            user.profile_photo = None
+        else:
+            user.profile_photo = profile_photo_url
+        
         user.save()
         return Response({"message": "프로필 사진이 성공적으로 업데이트되었습니다."}, status=status.HTTP_200_OK)
 

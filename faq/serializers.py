@@ -62,7 +62,12 @@ class StoreSerializer(serializers.ModelSerializer):
         fields = ['store_id', 'user', 'store_name', 'store_address', 'banner', 'menu_price', 'opening_hours', 'qr_code', 'agent_id', 'updated_at']
 
     def validate_banner(self, value):
+        # banner가 빈 문자열 또는 None일 경우 검증을 건너뜁니다.
+        if value in [None, '']:
+            return value
+        
         return validate_file(value, ['png', 'jpg', 'jpeg'], 10 * 1024 * 1024, "배너 사진")
+
     
 class LoginSerializer(serializers.Serializer):
     username = serializers.CharField()

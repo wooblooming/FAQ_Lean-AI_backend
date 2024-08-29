@@ -90,11 +90,14 @@ class SendVerificationCodeView(APIView):
         phone_number = request.data.get('phone')
         code_type = request.data.get('type')  # 'signup' 또는 'findidpw' 값을 가질 수 있음
 
+        logger.debug(f"Received data for sending code - Phone: {phone_number}, Type: {code_type}")
+
         if not phone_number or not code_type:
+            logger.error("Phone number or type missing in the request.")
             return Response({'success': False, 'message': '전화번호를 입력해주세요.'}, status=status.HTTP_400_BAD_REQUEST)
 
         verification_code = self.generate_verification_code()
-        print(verification_code)
+        logger.debug(f"Generated verification code: {verification_code}")
 
         cache_key = f'{code_type}_verification_code_{phone_number}'
         cache.set(cache_key, verification_code, timeout=300)
@@ -110,41 +113,66 @@ class SendVerificationCodeView(APIView):
 
         response = requests.post('https://apis.aligo.in/send/', data=sms_data)
 
+        logger.debug(f"SMS sending response: {response.status_code}, {response.text}")
+
         if response.status_code == 200:
+            logger.info(f"Verification code sent successfully to {phone_number}")
             return Response({'success': True, 'message': '인증 번호가 발송되었습니다.'})
         else:
+            logger.error(f"Failed to send verification code to {phone_number}")
             return Response({'success': False, 'message': '인증 번호 발송에 실패했습니다.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
+
+import logging
+
+logger = logging.getLogger(__name__)
+
 class VerifyCodeView(APIView):
     def post(self, request):
+        # 요청 데이터를 받아옵니다.
         phone_number = request.data.get('phone')
         entered_code = request.data.get('code')
         code_type = request.data.get('type')  # 'signup' 또는 'findidpw' 값을 가질 수 있음
 
+        # 디버깅 로그 추가
+        logger.debug(f"Received data - Phone: {phone_number}, Code: {entered_code}, Type: {code_type}")
+        
+        # 필수 데이터가 모두 제공되었는지 확인합니다.
         if not phone_number or not entered_code or not code_type:
+            logger.error("Missing phone number, code, or type in the request.")
             return Response({'success': False, 'message': '전화번호, 인증 번호를 입력해주세요.'}, status=status.HTTP_400_BAD_REQUEST)
 
+        # 캐시에서 저장된 인증번호를 가져옵니다.
         cache_key = f'{code_type}_verification_code_{phone_number}'
         saved_code = cache.get(cache_key)
 
+        # 캐시에서 가져온 데이터 확인
+        logger.debug(f"Cache key: {cache_key}, Saved code: {saved_code}")
+
+        # 인증 코드가 일치하는지 확인합니다.
         if saved_code and saved_code == entered_code:
+            logger.info(f"Verification successful for phone: {phone_number}")
             if code_type == 'findidpw':
                 try:
                     user = User.objects.get(phone=phone_number)
+                    logger.debug(f"User found: {user.username}, {user.created_at}")
                     return Response({
                         'success': True,
                         'message': '인증이 완료되었습니다.',
                         'user_id': user.username,
-                        'user_password' : user.password,
+                        'user_password': user.password,
                         'date_joined': user.created_at.strftime('%Y.%m.%d')
                     }, status=status.HTTP_200_OK)
                 except User.DoesNotExist:
+                    logger.error(f"No user found with phone number: {phone_number}")
                     return Response({'success': False, 'message': '해당 전화번호로 등록된 사용자가 없습니다.'}, status=status.HTTP_404_NOT_FOUND)
             else:
                 return Response({'success': True, 'message': '회원가입 인증이 완료되었습니다.'}, status=status.HTTP_200_OK)
         else:
+            logger.warning(f"Verification failed for phone: {phone_number}, Entered code: {entered_code}, Saved code: {saved_code}")
             return Response({'success': False, 'message': '인증 번호가 일치하지 않습니다.'}, status=status.HTTP_400_BAD_REQUEST)
+
 
 class PasswordResetView(APIView):
     def post(self, request):

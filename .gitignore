@@ -291,3 +291,5 @@ chatbot/lean-ai-faq-54a04f14f2f0.json
 
 # 환경 변수
 .env.local
+
+faq_backend/static/

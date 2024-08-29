@@ -3,7 +3,7 @@ from datetime import timedelta
 import os
 import sys
 
-BASE_DIR = Path(__file__).resolve().parent.parent
+BASE_DIR = Path(__file__).resolve().parent
 
 MY_SETTINGS_PATH = os.path.join(BASE_DIR, 'my_settings.py')
 
@@ -16,8 +16,8 @@ try:
 except ImportError:
     raise ImportError("my_settings.py 파일이 누락되었습니다. 올바르게 설정해 주세요.")
 
-DEBUG = True  # 개발 시에는 True, 배포 시에는 False로 변경
-ALLOWED_HOSTS = ['*']  # 개발 시에는 *, 배포 시에는 도메인만 허용
+DEBUG = False  # 개발 시에는 True, 배포 시에는 False로 변경
+ALLOWED_HOSTS = ['4.230.17.234', 'mumulai.com']  # 개발 시에는 *, 배포 시에는 도메인만 허용
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
@@ -51,6 +51,8 @@ CORS_ALLOWED_ORIGINS = [
     'http://localhost:3000',
     'http://127.0.0.1:3000',
     'http://4.230.17.234:3000',
+    'https://mumulai.com',
+    'https://www.mumulai.com',
 ]
 
 AUTHENTICATION_BACKENDS = [
@@ -103,6 +105,8 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 
+STATIC_ROOT = os.path.join(BASE_DIR, 'static/')
+
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # 외부 API 설정을 my_settings.py에서 가져옵니다.
@@ -130,3 +134,4 @@ REST_FRAMEWORK = {
         'rest_framework.permissions.AllowAny',
     ),
 }
+

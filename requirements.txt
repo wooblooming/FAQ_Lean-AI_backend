@@ -17,8 +17,10 @@ google-cloud-dialogflow==2.31.0
 googleapis-common-protos==1.63.2
 grpcio==1.66.0
 grpcio-status==1.66.0
+gunicorn==23.0.0
 httplib2==0.22.0
 idna==3.7
+packaging==24.1
 pillow==10.4.0
 proto-plus==1.24.0
 protobuf==5.27.3
@@ -34,3 +36,4 @@ sqlparse==0.5.1
 tzdata==2024.1
 uritemplate==4.1.1
 urllib3==2.2.2
+uWSGI==2.0.26

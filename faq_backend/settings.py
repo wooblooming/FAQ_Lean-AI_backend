@@ -3,7 +3,7 @@ from datetime import timedelta
 import os
 import sys
 
-BASE_DIR = Path(__file__).resolve().parent.parent
+BASE_DIR = Path(__file__).resolve().parent
 
 MY_SETTINGS_PATH = os.path.join(BASE_DIR, 'my_settings.py')
 
@@ -20,7 +20,7 @@ DEBUG = True  # 개발 시에는 True, 배포 시에는 False로 변경
 ALLOWED_HOSTS = ['*']  # 개발 시에는 *, 배포 시에는 도메인만 허용
 
 MEDIA_URL = '/media/'
-MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+MEDIA_ROOT = BASE_DIR.parent / 'media'
 
 INSTALLED_APPS = [
     'django.contrib.admin',

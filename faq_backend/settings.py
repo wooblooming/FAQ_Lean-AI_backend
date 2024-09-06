@@ -20,7 +20,7 @@ DEBUG = False  # 개발 시에는 True, 배포 시에는 False로 변경
 ALLOWED_HOSTS = ['4.230.17.234', 'mumulai.com']  # 개발 시에는 *, 배포 시에는 도메인만 허용
 
 MEDIA_URL = '/media/'
-MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+MEDIA_ROOT = Path(BASE_DIR).parent / 'faq_backend' / 'media'  # /home/lean-ai/FAQ_PJ/backend/faq_backend/media
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -53,6 +53,9 @@ CORS_ALLOWED_ORIGINS = [
     'http://4.230.17.234:3000',
     'https://mumulai.com',
     'https://www.mumulai.com',
+    'http://localhost:3002',
+    'http://localhost:3003',
+
 ]
 
 AUTHENTICATION_BACKENDS = [
@@ -135,3 +138,37 @@ REST_FRAMEWORK = {
     ),
 }
 
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'handlers': {
+        'file': {
+            'level': 'DEBUG',  # DEBUG 레벨로 설정되어야 함
+            'class': 'logging.FileHandler',
+            'filename': '/var/log/django/django.log',
+        },
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['file'],
+            'level': 'DEBUG',  # DEBUG 레벨로 설정되어야 함
+            'propagate': True,
+        },
+        '__main__': {  # __main__을 포함하여 다른 로거도 설정 가능
+            'handlers': ['file'],
+            'level': 'DEBUG',
+            'propagate': True,
+        },
+        'faq': {  # 여기에 올바른 모듈 이름을 넣으세요
+            'handlers': ['file'],
+            'level': 'DEBUG',
+            'propagate': True,
+        },
+    },
+}
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+        'LOCATION': 'redis://127.0.0.1:6379/1',
+    }
+}

@@ -37,3 +37,4 @@ tzdata==2024.1
 uritemplate==4.1.1
 urllib3==2.2.2
 uWSGI==2.0.26
+redis==5.0.8

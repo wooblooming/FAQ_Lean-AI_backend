@@ -7,6 +7,7 @@ from .views import (
     UserStoresListView, UserStoreDetailView, 
     EditView, PasswordResetView, UserProfileView,
     UserProfilePhotoUpdateView, CustomerStoreView,
+    GenerateQrCodeView, QrCodeImageView
 )
 
 urlpatterns = [
@@ -22,5 +23,7 @@ urlpatterns = [
     path('user-profile/', UserProfileView.as_view(), name='user-profile'),
     path('update-profile-photo/', UserProfilePhotoUpdateView.as_view(), name='update-profile-photo'),
     path('storesinfo/', CustomerStoreView.as_view(), name='store_info'),
+    path('generate-qr-code/', GenerateQrCodeView.as_view(), name='generate-qr-code'),
+    path('qrCodeImage/', QrCodeImageView.as_view(), name='qr_code_image'),
     
-] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+]

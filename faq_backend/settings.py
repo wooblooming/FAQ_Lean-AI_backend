@@ -20,7 +20,7 @@ DEBUG = False  # 개발 시에는 True, 배포 시에는 False로 변경
 ALLOWED_HOSTS = ['4.230.17.234', 'mumulai.com']  # 개발 시에는 *, 배포 시에는 도메인만 허용
 
 MEDIA_URL = '/media/'
-MEDIA_ROOT = Path(BASE_DIR).parent / 'faq_backend' / 'media'  # /home/lean-ai/FAQ_PJ/backend/faq_backend/media
+MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
 INSTALLED_APPS = [
     'django.contrib.admin',

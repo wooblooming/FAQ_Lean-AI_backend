@@ -241,7 +241,6 @@ class UserStoreDetailView(APIView):
     permission_classes = [IsAuthenticated]
 
     def put(self, request, store_id):
-        # 주어진 store_id와 사용자로 스토어 정보 가져오기
         try:
             store = Store.objects.get(pk=store_id, user=request.user)
         except Store.DoesNotExist:
@@ -249,9 +248,11 @@ class UserStoreDetailView(APIView):
 
         data = request.data.copy()
         
-        # 배너 필드가 빈 문자열인 경우 null로 처리
-        if 'banner' in data and data['banner'] == '':
-            data['banner'] = None
+        # 배너 필드 처리
+        if 'banner' in request.FILES:
+            store.banner = request.FILES['banner']
+        elif 'banner' in data and data['banner'] == '':
+            store.banner = None  # 빈 문자열이면 배너 삭제
 
         serializer = StoreSerializer(store, data=data, partial=True)
         if serializer.is_valid():

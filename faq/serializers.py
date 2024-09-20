@@ -14,7 +14,7 @@ def validate_file(value, allowed_extensions, max_file_size, error_message_prefix
     
     # 파일 크기 확인
     if value.size > max_file_size:
-        return f"{error_message_prefix} 파일 크기는 {max_file_size // (1024 * 1024)}MB 이하이어야 합니다."
+        return f"{error_message_prefix} 파일 크기는 {max_file_size // (1000 * 1024 * 1024)}MB 이하이어야 합니다."
     
     return None  # 오류가 없는 경우
 

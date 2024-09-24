@@ -1,5 +1,7 @@
 from django.db import models
+from django.utils.text import slugify
 from django.conf import settings
+import re
 
 # User 모델을 관리하는 매니저 클래스 및 커스텀 User 모델
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager
@@ -29,6 +31,7 @@ class User(AbstractBaseUser):
     email = models.EmailField(max_length=30, blank=True, null=True)
     profile_photo = models.ImageField(upload_to='profile_photos/', blank=True, null=True)  # ImageField로 변경
     created_at = models.DateTimeField(auto_now_add=True)
+    marketing = models.CharField(max_length=1, choices=[('Y', 'Yes'), ('N', 'No')], default='N')
 
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
@@ -43,21 +46,49 @@ class User(AbstractBaseUser):
         return self.username
 
 class Store(models.Model):
+    STORE_CATEGORIES = [
+        ('FOOD', '음식점'),
+        ('RETAIL', '판매점'),
+        ('UNMANNED', '무인매장'),
+        ('PUBLIC', '공공기관'),
+        ('OTHER', '기타'),
+    ]
+
     store_id = models.AutoField(primary_key=True)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='stores')
     store_name = models.CharField(max_length=20, unique=True)
     store_address = models.TextField(blank=True, null=True)
     store_tel = models.TextField(blank=True, null=True)
-    store_desc =  models.TextField(blank=True, null=True)
     banner = models.ImageField(upload_to='banners/', blank=True, null=True)
     menu_price = models.TextField(blank=True, null=True)
     opening_hours = models.TextField(blank=True, null=True)
     qr_code = models.CharField(max_length=100, blank=True, null=True)
     agent_id = models.CharField(max_length=100, blank=True, null=True)
     updated_at = models.DateTimeField(auto_now=True)
+    slug = models.SlugField(max_length=255, unique=True)
+    store_category = models.CharField(max_length=50, choices=STORE_CATEGORIES, default='FOOD')
+    store_introduction = models.TextField(blank=True, null=True)
+
+    def save(self, *args, **kwargs):
+        # Slug가 비어있으면 store_name을 기반으로 slug 생성
+        if not self.slug:
+            # 공백은 하이픈으로, 특수 문자는 모두 제거
+            base_slug = slugify(self.store_name, allow_unicode=True)  # allow_unicode=True로 한글 슬러그 지원
+            slug = base_slug
+            counter = 1
+
+            # 중복된 슬러그가 있으면 '-1', '-2'를 붙여 고유하게 만듦
+            while Store.objects.filter(slug=slug).exists():
+                slug = f'{base_slug}-{counter}'
+                counter += 1
+
+            self.slug = slug
+
+        super(Store, self).save(*args, **kwargs)
 
     def __str__(self):
         return self.store_name
+
 
 class Edit(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='edits')  # 요청을 보낸 사용자

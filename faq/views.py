@@ -428,8 +428,11 @@ class UserProfilePhotoUpdateView(APIView):
         user.save() 
         return Response({"message": "프로필 사진이 성공적으로 업데이트되었습니다."}, status=status.HTTP_200_OK)
 
+from rest_framework.permissions import AllowAny
+
 # 스토어 목록 조회 및 단일 스토어 조회 API
 class CustomerStoreView(APIView):
+    permission_classes = [AllowAny]  # 인증 없이 접근 가능하도록 설정
 
     def get(self, request):
         # 사용자의 타입에 따라 다르게 응답
@@ -452,7 +455,7 @@ class CustomerStoreView(APIView):
             stores_data = [
                 {
                     'slug': store.slug,
-                    'store_introdution':store.store_introdution,
+                    'store_introdution': store.store_introdution,
                 } for store in stores
             ]
             return Response(stores_data, status=status.HTTP_200_OK)
@@ -468,8 +471,10 @@ class CustomerStoreView(APIView):
                         'slug': store.slug,
                         'store_address': store.store_address,
                         'store_hours': store.opening_hours,
-                        'store_category': store.store_category, 
-                        'store_introduction':store.store_introduction,
+                        'store_category': store.store_category,
+                        'store_introduction': store.store_introduction,
+                        'agent_id': store.agent_id,
+
                     }
                     return Response(store_data, status=status.HTTP_200_OK)
                 except Store.DoesNotExist:
@@ -483,7 +488,7 @@ class CustomerStoreView(APIView):
                 } for store in stores
             ]
             return Response(stores_data, status=status.HTTP_200_OK)
-        
+
         else:
             return Response({'error': '유효하지 않은 요청입니다.'}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -506,14 +511,14 @@ class CustomerStoreView(APIView):
 
         store_data = {
             'store_name': store.store_name,
-            'store_introduction' : store.store_introduction,
+            'store_introduction': store.store_introduction,
             'store_image': store.banner.url if store.banner else '',
             'store_hours': store.opening_hours,
             'store_address': store.store_address,
             'store_tel': store.store_tel,
             'menu_prices': store.menu_price,
             'agent_id': store.agent_id,
-            'store_category': store.store_category, 
+            'store_category': store.store_category,
         }
 
         # 소유자라면 추가적인 정보 제공 가능
@@ -522,7 +527,7 @@ class CustomerStoreView(APIView):
         
         return Response(store_data, status=status.HTTP_200_OK)
 
-# QR 코드 생성 및 저장 API
+
 class GenerateQrCodeView(APIView):
     permission_classes = [IsAuthenticated]  # 로그인된 사용자만 접근 가능
 
@@ -539,9 +544,7 @@ class GenerateQrCodeView(APIView):
             return Response({'error': '스토어를 찾을 수 없습니다.'}, status=404)
 
         # QR 코드에 포함할 URL 설정
-        # 슬러그를 퍼센트 인코딩
-        encoded_slug = quote(store.slug)
-        qr_url = f'https://mumulai.com/storeIntroduction/{encoded_slug}'
+        qr_url = f'https://mumulai.com/storeIntroduction/{store.slug}'
 
         try:
             # QR 코드 생성
@@ -555,28 +558,30 @@ class GenerateQrCodeView(APIView):
             qr.make(fit=True)
 
             # QR 코드 이미지 저장 경로 설정
-            qr_filename = f'qr_{encoded_slug}.png'
-            logger.debug(f'qr filename  : {qr_filename}')
-            qr_directory = os.path.join(settings.MEDIA_ROOT, 'qr_codes')
+            qr_filename = f'qr_{store_id}.png'
+            qr_directory = os.path.join(settings.MEDIA_ROOT, 'qr_codes')  # 상대 경로에서 앞에 '/' 제거
             qr_path = os.path.join(qr_directory, qr_filename)
 
             # 디렉토리가 없으면 생성
             if not os.path.exists(qr_directory):
                 os.makedirs(qr_directory)
-                logger.debug(f"QR 코드 디렉토리 생성됨: {qr_directory}")
 
             # QR 코드 이미지 저장
             img = qr.make_image(fill='black', back_color='white')
             img.save(qr_path)
-            logger.debug(f"QR 코드 이미지 저장됨: {qr_path}")
 
-            # 데이터베이스에 QR 코드 URL 저장
-            store.qr_code = f'{settings.MEDIA_URL}qr_codes/{qr_filename}'
+            # 데이터베이스에 QR 코드 경로를 저장 (앞에 '/'를 추가하여 절대 경로처럼 보이게 함)
+            store.qr_code = f'/media/qr_codes/{qr_filename}'
             store.save()
+
+            # 로그 출력
+            logger.debug(f"Generated QR Code URL (store.qr_code): {store.qr_code}")
+            logger.debug(f"QR Content URL (qr_url): {qr_url}")
 
             return Response({
                 'message': 'QR 코드가 성공적으로 생성되었습니다.',
-                'qr_code_url': store.qr_code
+                'qr_code_url': store.qr_code,  # 저장된 경로 반환
+                'qr_content_url': qr_url  # QR 코드에 인코딩된 실제 URL 반환
             }, status=201)
         except Exception as e:
             logger.error(f"QR 코드 생성 중 오류 발생: {e}")
@@ -604,3 +609,114 @@ class QrCodeImageView(APIView):
         except Exception as e:
             return Response({'error': 'An unexpected error occurred.'}, status=500)
         
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        try:
+            # 사용자의 스토어 정보 가져오기
+            store = Store.objects.get(user=request.user)
+            if store.qr_code:
+                store_name = store.store_name
+                # 상대 경로만 반환
+                qr_code_url = store.qr_code  # 상대 경로만 반환
+                qr_content_url = f'https://mumulai.com/storeIntroduction/{store.slug}'  # QR 코드에 인코딩된 실제 URL
+                return Response({
+                    'store_name': store_name, 
+                    'qr_code_image_url': qr_code_url,
+                    'qr_content_url': qr_content_url
+                }, status=200)
+            else:
+                return Response({'qr_code_image_url': None}, status=200)
+        except Store.DoesNotExist:
+            return Response({'error': 'Store not found'}, status=404)
+        except Exception as e:
+            return Response({'error': 'An unexpected error occurred.'}, status=500)
+
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        try:
+            # 사용자의 스토어 정보 가져오기
+            store = Store.objects.get(user=request.user)
+            if store.qr_code:
+                store_name = store.store_name
+                # 전체 URL 생성
+                qr_code_url = request.build_absolute_uri(settings.MEDIA_URL + store.qr_code)
+                qr_content_url = f'https://mumulai.com/storeIntroduction/{store.slug}'  # QR 코드에 인코딩된 실제 URL
+                return Response({
+                    'store_name': store_name, 
+                    'qr_code_image_url': qr_code_url,
+                    'qr_content_url': qr_content_url
+                }, status=200)
+            else:
+                return Response({'qr_code_image_url': None}, status=200)
+        except Store.DoesNotExist:
+            return Response({'error': 'Store not found'}, status=404)
+        except Exception as e:
+            return Response({'error': 'An unexpected error occurred.'}, status=500)
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        try:
+            # 사용자의 스토어 정보 가져오기
+            store = Store.objects.get(user=request.user)
+            if store.qr_code:
+                store_name = store.store_name
+                # 전체 URL 생성
+                qr_code_url = request.build_absolute_uri(settings.MEDIA_URL + store.qr_code)
+                qr_content_url = f'https://mumulai.com/storeIntroduction/{store.slug}'  # QR 코드에 인코딩된 실제 URL
+                return Response({
+                    'store_name': store_name, 
+                    'qr_code_image_url': qr_code_url,
+                    'qr_content_url': qr_content_url
+                }, status=200)
+            else:
+                return Response({'qr_code_image_url': None}, status=200)
+        except Store.DoesNotExist:
+            return Response({'error': 'Store not found'}, status=404)
+        except Exception as e:
+            return Response({'error': 'An unexpected error occurred.'}, status=500)
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        try:
+            # 사용자의 스토어 정보 가져오기
+            store = Store.objects.get(user=request.user)
+            if store.qr_code:
+                store_name = store.store_name
+                # 전체 URL 생성
+                qr_code_url = request.build_absolute_uri(settings.MEDIA_URL + store.qr_code)
+                qr_content_url = f'https://mumulai.com/storeIntroduction/{store.slug}'  # QR 코드에 인코딩된 실제 URL
+                return Response({
+                    'store_name': store_name, 
+                    'qr_code_image_url': qr_code_url,
+                    'qr_content_url': qr_content_url
+                }, status=200)
+            else:
+                return Response({'qr_code_image_url': None}, status=200)
+        except Store.DoesNotExist:
+            return Response({'error': 'Store not found'}, status=404)
+        except Exception as e:
+            return Response({'error': 'An unexpected error occurred.'}, status=500)
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        try:
+            # 사용자의 스토어 정보 가져오기
+            store = Store.objects.get(user=request.user)
+            if store.qr_code:
+                store_name = store.store_name
+                # 전체 URL 생성
+                qr_code_url = request.build_absolute_uri(settings.MEDIA_URL + store.qr_code)
+                qr_content_url = f'https://mumulai.com/storeIntroduction/{store.slug}'  # QR 코드에 인코딩된 실제 URL
+                return Response({
+                    'store_name': store_name, 
+                    'qr_code_image_url': qr_code_url,
+                    'qr_content_url': qr_content_url
+                }, status=200)
+            else:
+                return Response({'qr_code_image_url': None}, status=200)
+        except Store.DoesNotExist:
+            return Response({'error': 'Store not found'}, status=404)
+        except Exception as e:
+            return Response({'error': 'An unexpected error occurred.'}, status=500)

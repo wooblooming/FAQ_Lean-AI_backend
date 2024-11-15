@@ -85,9 +85,10 @@ class Public(models.Model):
     slug = models.SlugField(max_length=255, unique=True)
 
     class Meta:
-        app_label = 'faq_public'  # 라우터가 이 모델을 faq_public DB에서 사용하도록 설정
+        app_label = 'faq_public'
 
     def save(self, *args, **kwargs):
+        # 객체가 새로 생성될 때 slug를 생성
         if not self.slug:
             base_slug = slugify(self.public_name, allow_unicode=True)
             slug = base_slug
@@ -96,7 +97,13 @@ class Public(models.Model):
                 slug = f'{base_slug}-{counter}'
                 counter += 1
             self.slug = slug
-        super(Public, self).save(*args, **kwargs)
+
+        # '기타' 부서를 자동으로 추가
+        is_new = self.pk is None
+        super().save(*args, **kwargs)  # 먼저 Public 객체 저장
+
+        if is_new:
+            Public_Department.objects.get_or_create(department_name='기타', public=self)
 
     def __str__(self):
         return self.public_name
@@ -148,6 +155,12 @@ class Public_Complaint(models.Model):
     complaint_id = models.AutoField(primary_key=True)  
     complaint_number = models.CharField(max_length=20, unique=True)
     public = models.ForeignKey(Public, on_delete=models.CASCADE, related_name='complaints')
+    department = models.ForeignKey(
+        'Public_Department', on_delete=models.SET_NULL, 
+        null=True, 
+        blank=True, 
+        related_name='complaints'
+    )
     name = models.CharField(max_length=100)
     birth_date = models.CharField(max_length=6)  # YYMMDD 형식의 생년월일
     phone = models.CharField(max_length=15)

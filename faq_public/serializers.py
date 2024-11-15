@@ -151,5 +151,5 @@ class PublicEditSerializer(serializers.ModelSerializer):
 class PublicComplaintSerializer(serializers.ModelSerializer):
     class Meta:
         model = Public_Complaint
-        fields = ['complaint_number', 'public', 'name', 'birth_date', 'phone', 'email', 'title', 'content', 'status', 'created_at']
+        fields = ['complaint_id', 'complaint_number', 'public', 'name', 'birth_date', 'phone', 'email', 'title', 'content', 'status', 'created_at', 'department']
         read_only_fields = ['complaint_number']

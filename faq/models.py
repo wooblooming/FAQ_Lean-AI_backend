@@ -100,6 +100,8 @@ class Store(models.Model):
     def __str__(self):
         return self.store_name
 
+
+
 # 경로 생성 함수를 정의
 def user_directory_path(instance, filename):
     # 파일이 저장될 경로를 정의합니다. 예: 'uploads/store_<store_id>/<filename>'

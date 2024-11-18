@@ -8,7 +8,7 @@ from .views import (
     EditView, PasswordResetView, UserProfileView,
     UserProfilePhotoUpdateView, CustomerStoreView,
     GenerateQrCodeView, QrCodeImageView, MenuListView,
-    DeactivateAccountView,
+    DeactivateAccountView, StatisticsView,
 )
 
 urlpatterns = [
@@ -27,5 +27,6 @@ urlpatterns = [
     path('generate-qr-code/', GenerateQrCodeView.as_view(), name='generate-qr-code'),
     path('qrCodeImage/', QrCodeImageView.as_view(), name='qr_code_image'),
     path('menu-details/', MenuListView.as_view(), name='menu-details'),
+    path('statistics/', StatisticsView.as_view(), name='statistics'),
     path('deactivate-account/', DeactivateAccountView.as_view(), name='deactivate-account'),
 ]

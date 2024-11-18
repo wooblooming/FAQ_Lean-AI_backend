@@ -7,12 +7,14 @@ from django.utils.text import slugify
 from urllib.parse import unquote, quote
 from django.utils import timezone 
 from rest_framework import status
-from rest_framework.exceptions import ValidationError
+from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 import requests, random, logging, json, os, shutil
+from .analyze_utterances import get_most_common_utterances, save_most_common_utterances_graph
+from .merged_csv import merge_csv_files
 
 # QR 코드 생성에 필요한 라이브러리
 import qrcode
@@ -92,6 +94,8 @@ class SignupView(APIView):
 
 # 로그인 API 뷰
 class LoginView(APIView):
+    permission_classes = [AllowAny]
+
     def post(self, request):
         # 사용자명과 비밀번호 가져오기
         username = request.data.get('username')
@@ -109,8 +113,15 @@ class LoginView(APIView):
                 #logger.debug(f"Password check passed for username: {username}")  # 비밀번호 검증 통과
                 refresh = RefreshToken.for_user(user)
                 access_token = str(refresh.access_token)
-                #logger.debug(f"Issued token: {access_token}")  # 발급된 토큰 확인
-                return Response({'access': access_token})
+
+                # 사용자와 연결된 첫 번째 Store 가져오기
+                store = user.stores.first()
+                if store:
+                    store_id = store.store_id
+                else:
+                    return Response({"error": "등록되지 않은 회원입니다."}, status=status.HTTP_404_NOT_FOUND)
+                
+                return Response({'access': access_token, 'store_id': store_id})
             else:
                 #logger.warning(f"Password check failed for username: {username}")  # 비밀번호 검증 실패
                 return Response({"error": "아이디 또는 비밀번호가 일치하지 않습니다.\n 다시 시도해 주세요."}, status=status.HTTP_401_UNAUTHORIZED)
@@ -291,6 +302,7 @@ class PasswordResetView(APIView):
 
 # 유저의 스토어 목록을 반환하는 API
 class UserStoresListView(APIView):
+    authentication_classes = [JWTAuthentication] 
     permission_classes = [IsAuthenticated]  # 인증된 사용자만 접근 가능
 
     def post(self, request):
@@ -329,12 +341,10 @@ class UserStoresListView(APIView):
 
 # 특정 스토어 정보를 업데이트하는 API
 class UserStoreDetailView(APIView):
-    permission_classes = [IsAuthenticated]
+    authentication_classes = [JWTAuthentication] 
+    permission_classes = [IsAuthenticated]  # 인증된 사용자만 접근 가능
     
     def put(self, request, store_id):
-        logger.debug(f"put")
-
-
         # 주어진 store_id, 사용자로 스토어 정보 가져오기
         try:
             store = Store.objects.get(store_id=store_id, user=request.user)
@@ -358,7 +368,8 @@ class UserStoreDetailView(APIView):
 # 사용자 게시물 등록 API
 class EditView(APIView):
     # 이 뷰는 로그인된 사용자만 접근 가능하도록 설정
-    permission_classes = [IsAuthenticated]
+    authentication_classes = [JWTAuthentication] 
+    permission_classes = [IsAuthenticated]  # 인증된 사용자만 접근 가능
 
     def post(self, request):
         #logger.debug(f"Request data: {request.data}")
@@ -414,7 +425,8 @@ class EditView(APIView):
 # 사용자 프로필 조회 및 업데이트 API
 class UserProfileView(APIView):
     # 이 뷰는 인증된 사용자만 접근할 수 있도록 설정
-    permission_classes = [IsAuthenticated]
+    authentication_classes = [JWTAuthentication] 
+    permission_classes = [IsAuthenticated]  # 인증된 사용자만 접근 가능
 
     # 유저 프로필 정보를 조회하는 메서드
     def post(self, request):
@@ -496,9 +508,10 @@ class UserProfileView(APIView):
     
 # 프로필 사진 업데이트 API
 class UserProfilePhotoUpdateView(APIView):
-    permission_classes = [IsAuthenticated]
+    authentication_classes = [JWTAuthentication] 
+    permission_classes = [IsAuthenticated]  # 인증된 사용자만 접근 가능
 
-# POST 요청으로 프로필 사진을 업데이트
+    # POST 요청으로 프로필 사진을 업데이트
     def post(self, request):
         # 프로필 사진 업데이트
         user = request.user
@@ -520,103 +533,49 @@ class UserProfilePhotoUpdateView(APIView):
 class CustomerStoreView(APIView):
     permission_classes = [AllowAny]  # 인증 없이 접근 가능하도록 설정
 
-    def get(self, request):
-        # 사용자의 타입에 따라 다르게 응답
-        user_type = request.query_params.get('type')  # 'owner' 또는 'customer' 받기
-        slug = request.query_params.get('slug')  # 슬러그도 쿼리 파라미터에서 받기
+    def dispatch(self, request, *args, **kwargs):
+        data = json.loads(request.body)
+        user_type = data.get('type')  # JSON 본문에서 'type'을 추출합니다.
+        #logger.debug(f"Received type: {user_type}, slug: {slug}")
 
-        if slug:
-            # 슬러그가 존재할 경우 디코딩
-            decoded_slug = unquote(slug)
-        else:
-            decoded_slug = None
 
         if user_type == 'owner':
-            # 소유자라면 로그인된 사용자만 조회 가능
-            if not request.user.is_authenticated:
-                return Response({'error': '로그인이 필요합니다.'}, status=status.HTTP_401_UNAUTHORIZED)
+            self.authentication_classes = [JWTAuthentication]
+            self.permission_classes = [IsAuthenticated]
 
-            # 로그인된 사용자의 모든 스토어 가져오기
-            stores = Store.objects.filter(user=request.user)
-            stores_data = [
-                {
-                    'slug': store.slug,
-                    'store_introdution': store.store_introdution,
-                } for store in stores
-            ]
-            return Response(stores_data, status=status.HTTP_200_OK)
-        
-        elif user_type == 'customer':
-            # 고객일 경우 모든 스토어 목록 제공
-            if decoded_slug:
-                # 디코딩된 슬러그로 특정 스토어 조회
-                try:
-                    store = Store.objects.get(slug=decoded_slug)
-                    store_data = {
-                        'store_name': store.store_name,
-                        'slug': store.slug,
-                        'store_address': store.store_address,
-                        'store_hours': store.opening_hours,
-                        'store_category': store.store_category,
-                        'store_introduction': store.store_introduction,
-                        'agent_id': store.agent_id,
-
-                    }
-                    return Response(store_data, status=status.HTTP_200_OK)
-                except Store.DoesNotExist:
-                    return Response({'error': '스토어를 찾을 수 없습니다.'}, status=status.HTTP_404_NOT_FOUND)
-
-            # 슬러그가 없는 경우 모든 스토어 목록을 반환
-            stores = Store.objects.all()
-            stores_data = [
-                {
-                    'slug': store.slug,
-                } for store in stores
-            ]
-            return Response(stores_data, status=status.HTTP_200_OK)
-
-        else:
-            return Response({'error': '유효하지 않은 요청입니다.'}, status=status.HTTP_400_BAD_REQUEST)
+        return super().dispatch(request, *args, **kwargs)
 
     def post(self, request):
-        # 단일 스토어 정보 조회
-        user_type = request.data.get('type')  # 'owner' 또는 'customer' 받기
-        slug = request.data.get('slug')
+        # 요청에서 'type'과 'slug' 가져오기
+        data = json.loads(request.body)
+        slug = data.get('slug')
+        #logger.debug(f"Post method - Received type: {user_type}, slug: {slug}")
 
-        if not slug:
-            return Response({'error': '스토어 slug 필요합니다.'}, status=status.HTTP_400_BAD_REQUEST)
-
-        # 슬러그를 디코딩
-        decoded_slug = unquote(slug)
-
-        # 스토어 정보 조회
         try:
-            store = Store.objects.get(slug=decoded_slug)
+            # slug에 해당하는 공공기관 정보 가져오기
+            store = Store.objects.get(slug=slug)
+            #logger.debug(f"Public institution found: {public}")
+
+            # 공공기관 데이터 직렬화
+            store_data = StoreSerializer(store).data
+
+            # 응답 데이터 생성
+            response_data = {
+                "store": store_data
+            }
+            return Response(response_data, status=status.HTTP_200_OK)
+
         except Store.DoesNotExist:
-            return Response({'error': '스토어를 찾을 수 없습니다.'}, status=status.HTTP_404_NOT_FOUND)
-
-        store_data = {
-            'store_name': store.store_name,
-            'store_introduction': store.store_introduction,
-            'store_image': store.banner.url if store.banner else '',
-            'store_hours': store.opening_hours,
-            'store_address': store.store_address,
-            'store_tel': store.store_tel,
-            'menu_prices': store.menu_price,
-            'agent_id': store.agent_id,
-            'store_category': store.store_category,
-            'store_information': store.store_information,
-        }
-
-        # 소유자라면 추가적인 정보 제공 가능
-        if user_type == 'owner' and not request.user.is_authenticated:
-            return Response({'error': '로그인이 필요합니다.'}, status=status.HTTP_401_UNAUTHORIZED)
-        
-        return Response(store_data, status=status.HTTP_200_OK)
+            logger.error(f"No public institution found for slug: {slug}")
+            return Response({"error": "해당 매장 정보를 찾을 수 없습니다."}, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            logger.error(f"Server error occurred: {str(e)}")
+            return Response({"error": "서버 오류가 발생했습니다."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 class GenerateQrCodeView(APIView):
-    permission_classes = [IsAuthenticated]  # 로그인된 사용자만 접근 가능
+    authentication_classes = [JWTAuthentication] 
+    permission_classes = [IsAuthenticated]  # 인증된 사용자만 접근 가능
 
     def post(self, request):
         store_id = request.data.get('store_id')  # 요청에서 store_id 받기
@@ -676,7 +635,8 @@ class GenerateQrCodeView(APIView):
 
 # QR 코드 이미지를 반환하는 API
 class QrCodeImageView(APIView):
-    permission_classes = [IsAuthenticated]
+    authentication_classes = [JWTAuthentication] 
+    permission_classes = [IsAuthenticated]  # 인증된 사용자만 접근 가능
 
     def post(self, request):
         try:
@@ -729,23 +689,25 @@ def update_menu_price_field(store):
 
 # 메뉴 상세 조회, 수정 및 삭제 API
 class MenuListView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
 
     def get_permissions(self):
         """
         POST 요청의 action과 type 파라미터에 따라 권한을 설정.
         'view' 액션 및 'customer' 타입의 경우 인증 없이 접근 가능하도록 설정.
         """
-
         if self.request.method == 'POST':
             action = self.request.data.get('action')
-            type_ = self.request.data.get('type')
+            type = self.request.data.get('type')
             
             # action이 'view'이고 type이 'customer'인 경우 인증 불필요
-            if action == 'view' and type_ == 'customer':
+            if action == 'view' and type == 'customer':
                 return []
         
-        # 그 외의 경우는 인증 필요
-        return [IsAuthenticated()]
+        # 그 외의 경우는 기본 권한 설정
+        return super().get_permissions()
+
 
     def post(self, request):
         """
@@ -1011,12 +973,64 @@ class MenuListView(APIView):
         return Response(category_options, status=status.HTTP_200_OK)
     
 
+
+class StatisticsView(APIView):
+    authentication_classes = [JWTAuthentication] 
+    permission_classes = [IsAuthenticated]  # 인증된 사용자만 접근 가능
+
+    def post(self, request, *args, **kwargs):
+        try:
+            # 사용자별 CSV 파일 폴더 경로 지정
+            folder_path = f'conversation_history/{request.user.user_id}'
+
+            # 사용자 폴더가 존재하는지 확인
+            if not os.path.exists(folder_path):
+                #logger.debug(f"{folder_path} 경로가 존재하지 않습니다.")
+                return Response({"status": "no folder", "message": "사용자 데이터 폴더가 존재하지 않습니다."})
+            
+            # CSV 파일 병합 함수 호출
+            merged_file_path = merge_csv_files(folder_path)
+            
+            # 병합된 파일이 없으면 파일 없음 메시지 반환
+            if not merged_file_path or not os.path.exists(merged_file_path):
+                #logger.debug("병합된 파일이 존재하지 않습니다.")
+                return Response({"status": "no file", "message": "해당 파일이 존재하지 않습니다."}, status=status.HTTP_404_NOT_FOUND)
+
+            # 최다 언급 질문 3개 얻기
+            most_common_utterances = get_most_common_utterances(merged_file_path)
+
+            # 이미지 파일 저장 경로 생성
+            image_folder_path = f'faq_backend/media/statistics/{request.user.user_id}'
+            os.makedirs(image_folder_path, exist_ok=True)  # 폴더가 없으면 생성
+            output_image_path = os.path.join(image_folder_path, 'most_common_utterances.png')
+
+            # 그래프 이미지 생성 및 저장
+            save_most_common_utterances_graph(most_common_utterances, output_image_path)
+
+            # 이미지 URL을 응답에 포함
+            response_data = {
+                "status": "success",
+                "data": most_common_utterances,
+                "image_url": f"/media/statistics/{request.user.user_id}/most_common_utterances.png"
+            }
+
+            return Response(response_data, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            # 오류 메시지 로그 출력
+            logger.error(f"오류 발생: {str(e)}")
+            return Response({"status": "error", "message": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+    
+
 # 계정 비활성화
 class DeactivateAccountView(APIView):
     """
     사용자를 탈퇴시키는 뷰. 
     사용자 계정을 비활성화하고 개인정보를 익명화 처리.
     """
+    authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
 
     def post(self, request):

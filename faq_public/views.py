@@ -504,7 +504,6 @@ class PublicInfoView(APIView):
     def dispatch(self, request, *args, **kwargs):
         data = json.loads(request.body)
         user_type = data.get('type')  # JSON 본문에서 'type'을 추출합니다.
-        slug = data.get('slug')
         #logger.debug(f"Received type: {user_type}, slug: {slug}")
 
 
@@ -517,7 +516,6 @@ class PublicInfoView(APIView):
     def post(self, request):
         # 요청에서 'type'과 'slug' 가져오기
         data = json.loads(request.body)
-        user_type = data.get('type')  # JSON 본문에서 'type'을 추출합니다.
         slug = data.get('slug')
         #logger.debug(f"Post method - Received type: {user_type}, slug: {slug}")
 

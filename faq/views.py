@@ -8,6 +8,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
+from urllib.parse import unquote, quote
 import requests
 import random
 import logging
@@ -23,10 +24,9 @@ from .models import User, Store, Edit
 from .serializers import (
     UserSerializer, 
     StoreSerializer, 
-    LoginSerializer, 
     UsernameCheckSerializer, 
     PasswordCheckSerializer,
-    EditSerializer
+    EditSerializer,
 )
 
 # 디버깅을 위한 로거 설정
@@ -35,6 +35,9 @@ logger = logging.getLogger('faq')
 # 회원가입 API 뷰
 class SignupView(APIView):
     def post(self, request):
+        # 디버깅 
+        print("백엔드로 전달된 요청 데이터:", request.data)  # 요청 데이터를 출력
+
         # 요청 데이터에서 유저와 스토어 정보 가져오기
         user_data = {
             'username': request.data.get('username'),
@@ -42,12 +45,17 @@ class SignupView(APIView):
             'name': request.data.get('name'),
             'dob': request.data.get('dob'),
             'phone': request.data.get('phone'),
-            'email': request.data.get('email') if request.data.get('email') else None  
+            'email': request.data.get('email') if request.data.get('email') else None ,
+            'marketing': request.data.get('marketing')  
         }
         store_data = {
+            'store_category' : request.data.get('store_category'),
             'store_name': request.data.get('store_name'),
             'store_address': request.data.get('store_address'),
         }
+
+        print("User data:", user_data)  # User 데이터 출력
+        print("Store data:", store_data)  # Store 데이터 출력
 
         # 트랜잭션을 사용하여 유저와 스토어 생성
         with transaction.atomic():
@@ -70,27 +78,27 @@ class LoginView(APIView):
         username = request.data.get('username')
         password = request.data.get('password')
         
-        logger.debug(f"Login attempt for username: {username}")  # 로그인 시도 로깅
+        #logger.debug(f"Login attempt for username: {username}")  # 로그인 시도 로깅
         
         try:
             # 사용자 확인
             user = User.objects.get(username=username)
-            logger.debug(f"User found for username: {username}")  # 사용자가 발견되었을 때 로깅
+            #logger.debug(f"User found for username: {username}")  # 사용자가 발견되었을 때 로깅
             
             # 비밀번호 확인
             if check_password(password, user.password):
-                logger.debug(f"Password check passed for username: {username}")  # 비밀번호 검증 통과
+                #logger.debug(f"Password check passed for username: {username}")  # 비밀번호 검증 통과
                 refresh = RefreshToken.for_user(user)
                 return Response({
                     'refresh': str(refresh),
                     'access': str(refresh.access_token),
                 }, status=status.HTTP_200_OK)
             else:
-                logger.warning(f"Password check failed for username: {username}")  # 비밀번호 검증 실패
+                #logger.warning(f"Password check failed for username: {username}")  # 비밀번호 검증 실패
                 return Response({"error": "아이디 또는 비밀번호가 일치하지 않습니다.\n 다시 시도해 주세요."}, status=status.HTTP_401_UNAUTHORIZED)
 
         except User.DoesNotExist:
-            logger.warning(f"User does not exist for username: {username}")  # 사용자가 존재하지 않음
+            #logger.warning(f"User does not exist for username: {username}")  # 사용자가 존재하지 않음
             return Response({"error": "아이디 또는 비밀번호가 일치하지 않습니다.\n 다시 시도해 주세요."}, status=status.HTTP_401_UNAUTHORIZED)
         
         except Exception as e:
@@ -161,6 +169,7 @@ class SendVerificationCodeView(APIView):
             'sender': settings.ALIGO_SENDER,
             'receiver': phone_number,
             'msg': f'인증 번호는 [{verification_code}]입니다.',
+            'testmode_yn': 'Y',
         }
         response = requests.post('https://apis.aligo.in/send/', data=sms_data)
 
@@ -235,15 +244,42 @@ class UserStoresListView(APIView):
         stores = Store.objects.filter(user=user)
         serializer = StoreSerializer(stores, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
+    
+    def put(self, request):
+
+        # 퍼센트 인코딩된 slug를 디코딩
+        decoded_slug = unquote(requests.slug)
+
+        # 주어진 slug와 사용자로 스토어 정보 가져오기
+        try:
+            store = Store.objects.get(slug=decoded_slug, user=request.user) 
+        except Store.DoesNotExist:
+            return Response({'error': '스토어를 찾을 수 없습니다.'}, status=status.HTTP_404_NOT_FOUND)
+
+        data = request.data.copy()
+        
+        # 배너 필드가 빈 문자열인 경우 null로 처리
+        if 'banner' in data and data['banner'] == '':
+            data['banner'] = None
+
+        serializer = StoreSerializer(store, data=data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        else:
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 # 특정 스토어 정보를 업데이트하는 API
 class UserStoreDetailView(APIView):
     permission_classes = [IsAuthenticated]
-
+    
     def put(self, request, store_id):
-        # 주어진 store_id와 사용자로 스토어 정보 가져오기
+        logger.debug(f"put")
+
+
+        # 주어진 store_id, 사용자로 스토어 정보 가져오기
         try:
-            store = Store.objects.get(pk=store_id, user=request.user)
+            store = Store.objects.get(store_id=store_id, user=request.user)
         except Store.DoesNotExist:
             return Response({'error': '스토어를 찾을 수 없습니다.'}, status=status.HTTP_404_NOT_FOUND)
 
@@ -323,7 +359,9 @@ class UserProfileView(APIView):
             'business_address': store.store_address if store else '',  # 스토어 주소 (없으면 빈 문자열)
             'user_id' : user.username,  # 사용자 아이디
             'qr_code_url': qr_code_url,  # 스토어 QR 코드 URL (없으면 빈 문자열)
-            'banner_url': banner_url  # 스토어 배너 이미지 URL (없으면 빈 문자열)
+            'banner_url': banner_url,  # 스토어 배너 이미지 URL (없으면 빈 문자열)
+            'marketing': user.marketing,  # 마케팅 동의 여부 추가
+            'store_introduction':store.store_introduction,
         })
     
     # 유저 프로필을 업데이트하는 메서드
@@ -337,6 +375,7 @@ class UserProfileView(APIView):
         user.name = data.get('name', user.name)  # 이름 업데이트
         user.email = data.get('email', user.email)  # 이메일 업데이트
         user.phone = data.get('phone_number', user.phone)  # 전화번호 업데이트
+        user.marketing = data.get('marketing', user.marketing)  # 마케팅 동의 여부 업데이트
         user.save()  # 변경 사항을 저장
 
         try:
@@ -361,9 +400,12 @@ class UserProfileView(APIView):
             'phone_number': user.phone,  # 업데이트된 전화번호
             'business_name': store.store_name if store else "",  # 업데이트된 스토어 이름
             'business_address': store.store_address if store else "",  # 업데이트된 스토어 주소
+            'marketing': user.marketing, # 업데이트된 마케팅 상태
+            'store_introduction':store.store_introduction,
+
         }, status=status.HTTP_200_OK)  # 성공적으로 업데이트되었음을 나타내는 응답 코드 200 반환
-
-
+    
+    
 # 프로필 사진 업데이트 API
 class UserProfilePhotoUpdateView(APIView):
     permission_classes = [IsAuthenticated]
@@ -386,12 +428,23 @@ class UserProfilePhotoUpdateView(APIView):
         user.save() 
         return Response({"message": "프로필 사진이 성공적으로 업데이트되었습니다."}, status=status.HTTP_200_OK)
 
+from rest_framework.permissions import AllowAny
+
 # 스토어 목록 조회 및 단일 스토어 조회 API
 class CustomerStoreView(APIView):
+    permission_classes = [AllowAny]  # 인증 없이 접근 가능하도록 설정
 
     def get(self, request):
         # 사용자의 타입에 따라 다르게 응답
         user_type = request.query_params.get('type')  # 'owner' 또는 'customer' 받기
+        slug = request.query_params.get('slug')  # 슬러그도 쿼리 파라미터에서 받기
+
+        if slug:
+            # 슬러그가 존재할 경우 디코딩
+            decoded_slug = unquote(slug)
+        else:
+            decoded_slug = None
+
         if user_type == 'owner':
             # 소유자라면 로그인된 사용자만 조회 가능
             if not request.user.is_authenticated:
@@ -401,46 +454,71 @@ class CustomerStoreView(APIView):
             stores = Store.objects.filter(user=request.user)
             stores_data = [
                 {
-                    'store_id': store.store_id,
+                    'slug': store.slug,
+                    'store_introdution': store.store_introdution,
                 } for store in stores
             ]
             return Response(stores_data, status=status.HTTP_200_OK)
         
         elif user_type == 'customer':
             # 고객일 경우 모든 스토어 목록 제공
-            stores = Store.objects.all()  # 모든 스토어 가져오기
+            if decoded_slug:
+                # 디코딩된 슬러그로 특정 스토어 조회
+                try:
+                    store = Store.objects.get(slug=decoded_slug)
+                    store_data = {
+                        'store_name': store.store_name,
+                        'slug': store.slug,
+                        'store_address': store.store_address,
+                        'store_hours': store.opening_hours,
+                        'store_category': store.store_category,
+                        'store_introduction': store.store_introduction,
+                        'agent_id': store.agent_id,
+
+                    }
+                    return Response(store_data, status=status.HTTP_200_OK)
+                except Store.DoesNotExist:
+                    return Response({'error': '스토어를 찾을 수 없습니다.'}, status=status.HTTP_404_NOT_FOUND)
+
+            # 슬러그가 없는 경우 모든 스토어 목록을 반환
+            stores = Store.objects.all()
             stores_data = [
                 {
-                    'store_id': store.store_id,
+                    'slug': store.slug,
                 } for store in stores
             ]
             return Response(stores_data, status=status.HTTP_200_OK)
-        
+
         else:
             return Response({'error': '유효하지 않은 요청입니다.'}, status=status.HTTP_400_BAD_REQUEST)
 
     def post(self, request):
         # 단일 스토어 정보 조회
         user_type = request.data.get('type')  # 'owner' 또는 'customer' 받기
-        store_id = request.data.get('store_id')
+        slug = request.data.get('slug')
 
-        if not store_id:
-            return Response({'error': '스토어 ID가 필요합니다.'}, status=status.HTTP_400_BAD_REQUEST)
+        if not slug:
+            return Response({'error': '스토어 slug 필요합니다.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 슬러그를 디코딩
+        decoded_slug = unquote(slug)
 
         # 스토어 정보 조회
         try:
-            store = Store.objects.get(store_id=store_id)
+            store = Store.objects.get(slug=decoded_slug)
         except Store.DoesNotExist:
             return Response({'error': '스토어를 찾을 수 없습니다.'}, status=status.HTTP_404_NOT_FOUND)
 
         store_data = {
             'store_name': store.store_name,
+            'store_introduction': store.store_introduction,
             'store_image': store.banner.url if store.banner else '',
             'store_hours': store.opening_hours,
             'store_address': store.store_address,
             'store_tel': store.store_tel,
             'menu_prices': store.menu_price,
             'agent_id': store.agent_id,
+            'store_category': store.store_category,
         }
 
         # 소유자라면 추가적인 정보 제공 가능
@@ -449,16 +527,15 @@ class CustomerStoreView(APIView):
         
         return Response(store_data, status=status.HTTP_200_OK)
 
-# QR 코드 생성 및 저장 API
+
 class GenerateQrCodeView(APIView):
     permission_classes = [IsAuthenticated]  # 로그인된 사용자만 접근 가능
 
-    @method_decorator(require_POST)
     def post(self, request):
         store_id = request.data.get('store_id')  # 요청에서 store_id 받기
 
         if not store_id:
-            return Response({'error': '스토어 ID가 필요합니다.'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'error': '스토어 ID가 필요합니다.'}, status=400)
 
         # 주어진 store_id로 스토어 정보 가져오기
         try:
@@ -467,7 +544,7 @@ class GenerateQrCodeView(APIView):
             return Response({'error': '스토어를 찾을 수 없습니다.'}, status=404)
 
         # QR 코드에 포함할 URL 설정
-        qr_url = f'https://mumulai.com/storeIntroduction?id={store.store_id}'
+        qr_url = f'https://mumulai.com/storeIntroduction/{store.slug}'
 
         try:
             # QR 코드 생성
@@ -481,27 +558,34 @@ class GenerateQrCodeView(APIView):
             qr.make(fit=True)
 
             # QR 코드 이미지 저장 경로 설정
-            qr_filename = f'qr_{store.store_id}.png'
-            qr_directory = os.path.join(settings.MEDIA_ROOT, 'qr_codes')
+            qr_filename = f'qr_{store_id}.png'
+            qr_directory = os.path.join(settings.MEDIA_ROOT, 'qr_codes')  # 상대 경로에서 앞에 '/' 제거
             qr_path = os.path.join(qr_directory, qr_filename)
 
             # 디렉토리가 없으면 생성
-            os.makedirs(qr_directory, exist_ok=True)
+            if not os.path.exists(qr_directory):
+                os.makedirs(qr_directory)
 
             # QR 코드 이미지 저장
             img = qr.make_image(fill='black', back_color='white')
             img.save(qr_path)
 
-            # 데이터베이스에 QR 코드 URL 저장
-            store.qr_code = f'{settings.MEDIA_URL}qr_codes/{qr_filename}'
+            # 데이터베이스에 QR 코드 경로를 저장 (앞에 '/'를 추가하여 절대 경로처럼 보이게 함)
+            store.qr_code = f'/media/qr_codes/{qr_filename}'
             store.save()
+
+            # 로그 출력
+            logger.debug(f"Generated QR Code URL (store.qr_code): {store.qr_code}")
+            logger.debug(f"QR Content URL (qr_url): {qr_url}")
 
             return Response({
                 'message': 'QR 코드가 성공적으로 생성되었습니다.',
-                'qr_code_url': store.qr_code
-            }, status=status.HTTP_201_CREATED)
+                'qr_code_url': store.qr_code,  # 저장된 경로 반환
+                'qr_content_url': qr_url  # QR 코드에 인코딩된 실제 URL 반환
+            }, status=201)
         except Exception as e:
-            return Response({'error': '서버 내부 오류가 발생했습니다. 관리자에게 문의하세요.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            logger.error(f"QR 코드 생성 중 오류 발생: {e}")
+            return Response({'error': '서버 내부 오류가 발생했습니다. 관리자에게 문의하세요.'}, status=500)
 
 # QR 코드 이미지를 반환하는 API
 class QrCodeImageView(APIView):
@@ -513,9 +597,123 @@ class QrCodeImageView(APIView):
             store = Store.objects.get(user=request.user)
             if store.qr_code:
                 store_name = store.store_name
-                qr_code_url = store.qr_code  # QR 코드 URL
+                # qr_code URL을 퍼센트 인코딩하여 반환
+                qr_code_url = store.qr_code
+                encoded_qr_code_url = quote(qr_code_url)  # 퍼센트 인코딩 적용
 
-                return Response({'store_name': store_name, 'qr_code_image_url': qr_code_url}, status=200)
+                return Response({'store_name': store_name, 'qr_code_image_url': encoded_qr_code_url}, status=200)
+            else:
+                return Response({'qr_code_image_url': None}, status=200)
+        except Store.DoesNotExist:
+            return Response({'error': 'Store not found'}, status=404)
+        except Exception as e:
+            return Response({'error': 'An unexpected error occurred.'}, status=500)
+        
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        try:
+            # 사용자의 스토어 정보 가져오기
+            store = Store.objects.get(user=request.user)
+            if store.qr_code:
+                store_name = store.store_name
+                # 상대 경로만 반환
+                qr_code_url = store.qr_code  # 상대 경로만 반환
+                qr_content_url = f'https://mumulai.com/storeIntroduction/{store.slug}'  # QR 코드에 인코딩된 실제 URL
+                return Response({
+                    'store_name': store_name, 
+                    'qr_code_image_url': qr_code_url,
+                    'qr_content_url': qr_content_url
+                }, status=200)
+            else:
+                return Response({'qr_code_image_url': None}, status=200)
+        except Store.DoesNotExist:
+            return Response({'error': 'Store not found'}, status=404)
+        except Exception as e:
+            return Response({'error': 'An unexpected error occurred.'}, status=500)
+
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        try:
+            # 사용자의 스토어 정보 가져오기
+            store = Store.objects.get(user=request.user)
+            if store.qr_code:
+                store_name = store.store_name
+                # 전체 URL 생성
+                qr_code_url = request.build_absolute_uri(settings.MEDIA_URL + store.qr_code)
+                qr_content_url = f'https://mumulai.com/storeIntroduction/{store.slug}'  # QR 코드에 인코딩된 실제 URL
+                return Response({
+                    'store_name': store_name, 
+                    'qr_code_image_url': qr_code_url,
+                    'qr_content_url': qr_content_url
+                }, status=200)
+            else:
+                return Response({'qr_code_image_url': None}, status=200)
+        except Store.DoesNotExist:
+            return Response({'error': 'Store not found'}, status=404)
+        except Exception as e:
+            return Response({'error': 'An unexpected error occurred.'}, status=500)
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        try:
+            # 사용자의 스토어 정보 가져오기
+            store = Store.objects.get(user=request.user)
+            if store.qr_code:
+                store_name = store.store_name
+                # 전체 URL 생성
+                qr_code_url = request.build_absolute_uri(settings.MEDIA_URL + store.qr_code)
+                qr_content_url = f'https://mumulai.com/storeIntroduction/{store.slug}'  # QR 코드에 인코딩된 실제 URL
+                return Response({
+                    'store_name': store_name, 
+                    'qr_code_image_url': qr_code_url,
+                    'qr_content_url': qr_content_url
+                }, status=200)
+            else:
+                return Response({'qr_code_image_url': None}, status=200)
+        except Store.DoesNotExist:
+            return Response({'error': 'Store not found'}, status=404)
+        except Exception as e:
+            return Response({'error': 'An unexpected error occurred.'}, status=500)
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        try:
+            # 사용자의 스토어 정보 가져오기
+            store = Store.objects.get(user=request.user)
+            if store.qr_code:
+                store_name = store.store_name
+                # 전체 URL 생성
+                qr_code_url = request.build_absolute_uri(settings.MEDIA_URL + store.qr_code)
+                qr_content_url = f'https://mumulai.com/storeIntroduction/{store.slug}'  # QR 코드에 인코딩된 실제 URL
+                return Response({
+                    'store_name': store_name, 
+                    'qr_code_image_url': qr_code_url,
+                    'qr_content_url': qr_content_url
+                }, status=200)
+            else:
+                return Response({'qr_code_image_url': None}, status=200)
+        except Store.DoesNotExist:
+            return Response({'error': 'Store not found'}, status=404)
+        except Exception as e:
+            return Response({'error': 'An unexpected error occurred.'}, status=500)
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        try:
+            # 사용자의 스토어 정보 가져오기
+            store = Store.objects.get(user=request.user)
+            if store.qr_code:
+                store_name = store.store_name
+                # 전체 URL 생성
+                qr_code_url = request.build_absolute_uri(settings.MEDIA_URL + store.qr_code)
+                qr_content_url = f'https://mumulai.com/storeIntroduction/{store.slug}'  # QR 코드에 인코딩된 실제 URL
+                return Response({
+                    'store_name': store_name, 
+                    'qr_code_image_url': qr_code_url,
+                    'qr_content_url': qr_content_url
+                }, status=200)
             else:
                 return Response({'qr_code_image_url': None}, status=200)
         except Store.DoesNotExist:

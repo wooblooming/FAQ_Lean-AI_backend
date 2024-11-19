@@ -14,7 +14,7 @@ def validate_file(value, allowed_extensions, max_file_size, error_message_prefix
     
     # 파일 크기 확인
     if value.size > max_file_size:
-        return f"{error_message_prefix} 파일 크기는 {max_file_size // (1024 * 1024)}MB 이하이어야 합니다."
+        return f"{error_message_prefix} 파일 크기는 {max_file_size // (1000 * 1024 * 1024)}MB 이하이어야 합니다."
     
     return None  # 오류가 없는 경우
 
@@ -23,7 +23,7 @@ def validate_file(value, allowed_extensions, max_file_size, error_message_prefix
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ['user_id', 'username', 'password', 'name', 'dob', 'phone', 'email', 'profile_photo', 'created_at']
+        fields = ['user_id', 'username', 'password', 'name', 'dob', 'phone', 'email', 'profile_photo', 'created_at', 'marketing']
         extra_kwargs = {
             'password': {'write_only': True},  # 비밀번호는 쓰기 전용으로 설정
             'email': {'required': False}  # 이메일은 필수가 아님
@@ -68,7 +68,7 @@ class UserSerializer(serializers.ModelSerializer):
 class StoreSerializer(serializers.ModelSerializer):
     class Meta:
         model = Store
-        fields = ['store_id', 'user', 'store_name', 'store_address', 'store_tel', 'banner', 'menu_price', 'opening_hours', 'qr_code', 'agent_id', 'updated_at']
+        fields = ['store_id', 'user', 'store_name', 'store_address', 'store_tel', 'banner', 'menu_price', 'opening_hours', 'qr_code', 'agent_id', 'updated_at', 'slug', 'store_category', 'store_introduction']
 
     # 배너 이미지 검증 (빈 값은 허용하며, 파일 형식과 크기 검증)
     def validate_banner(self, value):
@@ -161,3 +161,4 @@ class EditSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(f"파일 크기가 너무 큽니다. 최대 허용 크기는 {max_file_size // (1024 * 1024)}MB입니다.")
 
         return value
+    

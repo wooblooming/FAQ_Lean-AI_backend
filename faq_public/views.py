@@ -326,7 +326,7 @@ class SendVerificationCodeView(APIView):
         }
         response = requests.post('https://apis.aligo.in/send/', data=sms_data)
 
-        logger.debug(verification_code)
+        print(verification_code)
 
         if response.status_code == 200:
             return Response({'success': True, 'message': '인증 번호가 발송되었습니다.'})
@@ -594,22 +594,31 @@ class DepartmentListView(APIView):
 
     def post(self, request):
         try:
-            # 요청에서 slug 가져오기
             slug = request.data.get('slug')
-            if not slug:
-                return Response({'error': 'slug가 제공되지 않았습니다.'}, status=400)
+            public_id = request.data.get('publicID')
 
-            # slug에 해당하는 Public 객체 찾기
-            public = Public.objects.filter(slug=slug).first()
-            if not public:
-                return Response({'error': '해당 slug에 일치하는 Public이 없습니다.'}, status=404)
+            if not slug and not public_id:
+                return Response({'error': 'slug 또는 publicID 중 하나를 제공해야 합니다.'}, status=400)
 
-            # Public_Department에서 해당 public_id에 대한 부서 목록 가져오기
-            departments = list(
-                Public_Department.objects.filter(public=public)
-                .values_list('department_name', flat=True)
-                .distinct()
-            )
+            if public_id:
+                # publicID를 기반으로 Public_Department 찾기
+                departments = list(
+                    Public_Department.objects.filter(public_id=public_id)
+                    .values_list('department_name', flat=True)
+                    .distinct()
+                )
+            elif slug:
+                # slug를 기반으로 Public 객체 찾기
+                public = Public.objects.filter(slug=slug).first()
+                if not public:
+                    return Response({'error': '해당 slug에 일치하는 Public이 없습니다.'}, status=404)
+
+                # slug에 해당하는 Public의 Public_Department 찾기
+                departments = list(
+                    Public_Department.objects.filter(public=public)
+                    .values_list('department_name', flat=True)
+                    .distinct()
+                )
 
             # '기타' 항목 추가
             if '기타' not in departments:
@@ -619,12 +628,10 @@ class DepartmentListView(APIView):
             if departments:
                 return Response({'departments': list(departments)}, status=200)
             else:
-                return Response({'message': '해당 public_id에 대한 부서가 없습니다.'}, status=404)
+                return Response({'message': '해당 public_id 또는 slug에 대한 부서가 없습니다.'}, status=404)
 
         except Exception as e:
             return Response({'error': str(e)}, status=500)
-
-
 
 
 # 사용자 프로필 업데이트 API
@@ -1032,6 +1039,7 @@ class ComplaintsRegisterView(APIView):
                         'msg': f'[{department_name}] 부서에 새 민원이 접수되었습니다. 접수번호: [{complaint_number}]',
                         'testmode_yn': 'Y',
                     }
+
                     try:
                         dept_response = requests.post('https://apis.aligo.in/send/', data=department_sms_data)
                         dept_response_data = dept_response.json()
@@ -1080,6 +1088,7 @@ class UpdateComplaintStatusView(APIView):
                     'msg': f'안녕하세요, 접수번호 [{complaint.complaint_number}]의 민원 처리가 완료되었습니다.',
                     'testmode_yn': 'Y',  # 테스트 모드 활성화 (실제 발송 시 'N'으로 변경)
                 }
+
                 response = requests.post('https://apis.aligo.in/send/', data=sms_data)
                 response_data = response.json()
 
@@ -1097,4 +1106,35 @@ class UpdateComplaintStatusView(APIView):
             logger.error(f"민원 상태 업데이트 중 오류 발생: {str(e)}")
             return Response({"status": "error", "message": "민원 상태 업데이트 중 오류가 발생했습니다."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-        
+    
+class ComplaintTransferView(APIView):
+    def post(self, request):
+        complaint_id = request.data.get('complaint_id')
+        department = request.data.get('department')
+        reason = request.data.get('reason')
+
+        if not all([complaint_id, department, reason]):
+            return Response({'error': '모든 필드를 입력해야 합니다.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            complaint = Public_Complaint.objects.get(id=complaint_id)
+
+            # 현재 부서와 선택한 부서가 같은지 확인
+            if complaint.assigned_department == department:
+                return Response(
+                    {'error': '현재 부서와 동일한 부서로 이관할 수 없습니다.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # 부서 업데이트
+            complaint.assigned_department = department #현재 민원이 속한 부서(이전 부서)
+            complaint.transfer_reason = reason
+            complaint.save()
+
+            return Response({'success': True, 'message': '민원이 성공적으로 이관되었습니다.'}, status=status.HTTP_200_OK)
+
+        except Public_Complaint.DoesNotExist:
+            return Response({'error': '민원을 찾을 수 없습니다.'}, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+

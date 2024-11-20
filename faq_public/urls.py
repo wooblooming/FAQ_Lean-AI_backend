@@ -10,7 +10,7 @@ from .views import (
     GenerateQrCodeView, QrCodeImageView,
     UserProfileView, UserProfilePhotoUpdateView,
     EditView, DepartmentListView, StatisticsView, 
-    ComplaintsView, ComplaintsRegisterView, 
+    ComplaintsView, ComplaintsRegisterView, ComplaintTransferView,
     UpdateComplaintStatusView, ComplaintsCustomerView
 
 )
@@ -33,8 +33,9 @@ urlpatterns = [
     path('edit/', EditView.as_view(), name='edit_request'),
     path('complaints/', ComplaintsView.as_view(), name='complaint_list'),              
     path('complaints/register/', ComplaintsRegisterView.as_view(), name='complaint_create'), 
-    path('complaints/<str:id>/status/', UpdateComplaintStatusView.as_view(), name='complaint-status_update'), # 민원 상태 업데이트
+    path('complaints/<str:id>/status/', UpdateComplaintStatusView.as_view(), name='complaint_status_update'), # 민원 상태 업데이트
     path('complaint-customer/', ComplaintsCustomerView.as_view(), name='complaint_customer'),
+    path('complaint-transfer/',ComplaintTransferView.as_view(), name='complaint_transfer'),
     path('department-list/', DepartmentListView.as_view(), name='department_list'),
 
     path('statistics/', StatisticsView.as_view(), name='statistics'),

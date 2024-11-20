@@ -12,12 +12,17 @@ sys.path.append(os.path.dirname(MY_SETTINGS_PATH))
 
 # my_settings에서 설정 값을 가져옵니다.
 try:
-    from my_settings import SECRET_KEY, DATABASES, ALIGO_API_KEY, ALIGO_USER_ID, ALIGO_SENDER
+    from my_settings import SECRET_KEY, DATABASES, ALIGO_API_KEY, ALIGO_USER_ID, ALIGO_SENDER, OPEN_API_KEY
 except ImportError:
     raise ImportError("my_settings.py 파일이 누락되었습니다. 올바르게 설정해 주세요.")
 
+'''
 DEBUG = False  # 개발 시에는 True, 배포 시에는 False로 변경
 ALLOWED_HOSTS = ['4.230.17.234', 'mumulai.com']  # 개발 시에는 *, 배포 시에는 도메인만 허용
+'''
+
+DEBUG = True  # 개발 시에는 True, 배포 시에는 False로 변경
+ALLOWED_HOSTS = ['*']  # 개발 시에는 *, 배포 시에는 도메인만 허용
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
@@ -31,9 +36,12 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'rest_framework',
     'faq',
+    'webhook',
+    'faq_public',
     'corsheaders',
     'django.core.files',
-    'chatbot',
+    'django_extensions',
+
 ]
 
 MIDDLEWARE = [
@@ -53,11 +61,16 @@ CORS_ALLOWED_ORIGINS = [
     'http://4.230.17.234:3000',
     'https://mumulai.com',
     'https://www.mumulai.com',
-    'http://localhost:3002',
     'http://localhost:3003',
+    'http://localhost:3004',
+    'http://localhost:8000',
+    'http://localhost:8001',
+    'http://127.0.0.1:8000',
+    'http://127.0.0.1:8001',
+    'http://4.230.17.234:3003',
+    'http://4.230.17.234:3004',
 
 ]
-
 AUTHENTICATION_BACKENDS = [
     'django.contrib.auth.backends.ModelBackend',
 ]
@@ -106,18 +119,17 @@ TIME_ZONE = 'Asia/Seoul'
 USE_I18N = True
 USE_TZ = True
 
-STATIC_URL = 'static/'
+STATIC_URL = '/static/'
 
 STATIC_ROOT = os.path.join(BASE_DIR, 'static/')
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-# 외부 API 설정을 my_settings.py에서 가져옵니다.
 SIMPLE_JWT = {
     'USER_ID_FIELD': 'user_id',
     'USER_ID_CLAIM': 'user_id',
     'AUTH_HEADER_TYPES': ('Bearer',),
-    'ACCESS_TOKEN_LIFETIME': timedelta(hours=2),
+    'ACCESS_TOKEN_LIFETIME': timedelta(hours=24),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
     'ROTATE_REFRESH_TOKENS': True,
     'BLACKLIST_AFTER_ROTATION': True,
@@ -130,45 +142,13 @@ SESSION_SAVE_EVERY_REQUEST = True  # 모든 요청마다 세션 갱신
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
-        'rest_framework.authentication.SessionAuthentication',
     ),
     'DEFAULT_PERMISSION_CLASSES': (
         'rest_framework.permissions.AllowAny',
     ),
 }
 
-LOGGING = {
-    'version': 1,
-    'disable_existing_loggers': False,
-    'handlers': {
-        'file': {
-            'level': 'DEBUG',  # DEBUG 레벨로 설정되어야 함
-            'class': 'logging.FileHandler',
-            'filename': '/var/log/django/django.log',
-        },
-    },
-    'loggers': {
-        'django': {
-            'handlers': ['file'],
-            'level': 'DEBUG',  # DEBUG 레벨로 설정되어야 함
-            'propagate': True,
-        },
-        '__main__': {  # __main__을 포함하여 다른 로거도 설정 가능
-            'handlers': ['file'],
-            'level': 'DEBUG',
-            'propagate': True,
-        },
-        'faq': {  # 여기에 올바른 모듈 이름을 넣으세요
-            'handlers': ['file'],
-            'level': 'DEBUG',
-            'propagate': True,
-        },
-    },
-}
-CACHES = {
-    'default': {
-        'BACKEND': 'django.core.cache.backends.redis.RedisCache',
-        'LOCATION': 'redis://127.0.0.1:6379/1',
-    }
-}
+import os
+OPEN_API_KEY = os.getenv('OPEN_API_KEY')
+
+DATABASE_ROUTERS = ['faq_backend.database_router.FAQPublicRouter']

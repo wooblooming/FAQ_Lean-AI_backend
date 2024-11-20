@@ -7,7 +7,10 @@ from .views import (
     UserStoresListView, UserStoreDetailView, 
     EditView, PasswordResetView, UserProfileView,
     UserProfilePhotoUpdateView, CustomerStoreView,
-    GenerateQrCodeView, QrCodeImageView,
+    GenerateQrCodeView, QrCodeImageView, MenuListView,
+    DeactivateAccountView, StatisticsView, 
+    FeedListView, FeedUploadView, FeedDeleteView, FeedRenameView,
+    PushTokenView, SendPushNotificationView
 )
 
 urlpatterns = [
@@ -25,4 +28,13 @@ urlpatterns = [
     path('storesinfo/', CustomerStoreView.as_view(), name='store_info'),
     path('generate-qr-code/', GenerateQrCodeView.as_view(), name='generate-qr-code'),
     path('qrCodeImage/', QrCodeImageView.as_view(), name='qr_code_image'),
+    path('menu-details/', MenuListView.as_view(), name='menu-details'),
+    path('statistics/', StatisticsView.as_view(), name='statistics'),
+    path('feed/', FeedListView.as_view(), name='feed_list'),
+    path('feed-upload/', FeedUploadView.as_view(), name='feed_upload'),
+    path('feed-delete/', FeedDeleteView.as_view(), name='feed_delete'),
+    path('feed-rename/', FeedRenameView.as_view(), name='feed_rename'),
+    path('deactivate-account/', DeactivateAccountView.as_view(), name='deactivate-account'),
+    path('register-push-token/', PushTokenView.as_view(), name='register_push_token'),
+    path('send-push-notification/', SendPushNotificationView.as_view(), name='send_push_notification'),
 ]

@@ -9,9 +9,10 @@ from .views import (
     PublicCreateView, PublicListView, PublicDetailView,
     GenerateQrCodeView, QrCodeImageView,
     UserProfileView, UserProfilePhotoUpdateView,
-    EditView, DepartmentListView, StatisticsView, 
+    EditView, StatisticsView, 
     ComplaintsView, ComplaintsRegisterView, ComplaintTransferView,
-    UpdateComplaintStatusView, ComplaintsCustomerView
+    ComplaintUpdateStatusView, ComplaintsCustomerView,
+    DepartmentListView, DepartmentCreateAPIView, DepartmentUpdateView,
 
 )
 
@@ -33,10 +34,12 @@ urlpatterns = [
     path('edit/', EditView.as_view(), name='edit_request'),
     path('complaints/', ComplaintsView.as_view(), name='complaint_list'),              
     path('complaints/register/', ComplaintsRegisterView.as_view(), name='complaint_create'), 
-    path('complaints/<str:id>/status/', UpdateComplaintStatusView.as_view(), name='complaint_status_update'), # 민원 상태 업데이트
+    path('complaints/<str:id>/status/', ComplaintUpdateStatusView.as_view(), name='complaint_status_update'), # 민원 상태 업데이트
     path('complaint-customer/', ComplaintsCustomerView.as_view(), name='complaint_customer'),
     path('complaint-transfer/',ComplaintTransferView.as_view(), name='complaint_transfer'),
     path('department-list/', DepartmentListView.as_view(), name='department_list'),
+    path('department-create/', DepartmentCreateAPIView.as_view(), name='department-create'),
+    path('department-update/', DepartmentUpdateView.as_view(), name='update-department'),
 
     path('statistics/', StatisticsView.as_view(), name='statistics'),
         

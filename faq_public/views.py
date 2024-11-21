@@ -32,7 +32,8 @@ from .serializers import (
     PublicUsernameCheckSerializer, 
     PublicPasswordCheckSerializer,
     PublicEditSerializer, 
-    PublicComplaintSerializer
+    PublicComplaintSerializer,
+    PublicDepartmentSerializer,
 )
 
 # 디버깅을 위한 로거 설정
@@ -69,7 +70,8 @@ class SignupView(APIView):
         try:
             # 기관 조회
             public_institution = Public.objects.get(public_id=institution_id)
-            #logger.debug(f"공공기관 조회 성공: {public_institution}")
+            user_data['public'] = public_institution.public_id  
+            print(f"공공기관 조회 성공: {public_institution}")
 
             # 사용자 생성과 기관 및 부서 연결을 트랜잭션으로 처리
             with transaction.atomic():
@@ -78,14 +80,14 @@ class SignupView(APIView):
                     department_name=department_name,
                     public=public_institution  # 이 부분에서 public_institution을 public 필드로 지정
                 )
-                #logger.debug(f"부서 생성/조회 성공: {department}, 생성 여부: {created}")
+                print(f"부서 생성/조회 성공: {department}, 생성 여부: {created}")
 
                 # 사용자 생성
                 user_serializer = PublicUserSerializer(data=user_data)
                 
                 # 사용자 데이터 검증
                 if not user_serializer.is_valid():
-                    #logger.debug(f"회원가입 유효성 검사 실패: {user_serializer.errors}")
+                    print(f"회원가입 유효성 검사 실패: {user_serializer.errors}")
                     return Response({
                         'success': False, 
                         'message': '회원가입에 실패했습니다.', 
@@ -437,20 +439,36 @@ class PublicCreateView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request, *args, **kwargs):
-        #logger.debug(f"Request data: {request.data}")
+        logger.debug(f"Request data: {request.data}")
 
         # 회원가입 과정에서 사용하는 PublicRegisterSerializer를 통해 데이터 검증 및 저장
         register_serializer = PublicRegisterSerializer(data=request.data)
         
         if register_serializer.is_valid():
             try:
-                register_serializer.save()  # 유효한 경우, 데이터베이스에 저장
-                return Response({"status": "success", "message": "공공기관 정보가 성공적으로 등록되었습니다.", "data": register_serializer.data}, status=status.HTTP_201_CREATED)
-            
+                # 데이터베이스에 저장
+                register_serializer.save()
+                return Response(
+                    {
+                        "status": "success",
+                        "message": "공공기관 정보가 성공적으로 등록되었습니다.",
+                        "data": register_serializer.data,
+                    },
+                    status=status.HTTP_201_CREATED,
+                )
             except ValidationError as e:
-                # 유효하지 않은 경우, 오류 메시지 출력
-                logger.debug(f"Validation errors: {register_serializer.errors}")
-                return Response(register_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+                logger.error(f"Validation error during save: {str(e)}")
+                return Response(
+                    {"error": "데이터 저장 중 오류가 발생했습니다."}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+        # 유효성 검사 실패 시 오류 반환
+        logger.warning(f"Validation errors: {register_serializer.errors}")
+        return Response(
+            {"status": "error", "errors": register_serializer.errors},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
 
 
 
@@ -633,6 +651,75 @@ class DepartmentListView(APIView):
         except Exception as e:
             return Response({'error': str(e)}, status=500)
 
+
+class DepartmentCreateAPIView(APIView):
+    def post(self, request):
+        department_name = request.data.get('department_name')
+        public_id = request.data.get('public_id')
+
+        if not department_name or not public_id:
+            return Response(
+                {"error": "부서 이름과 공공기관 ID는 필수입니다."}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            public = Public.objects.get(public_id=public_id)
+        except Public.DoesNotExist:
+            return Response(
+                {"error": "유효하지 않은 공공기관 ID입니다."}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # 부서 생성
+        department = Public_Department.objects.create(department_name=department_name, public=public)
+        serializer = PublicDepartmentSerializer(department)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+class DepartmentUpdateView(APIView):
+    authentication_classes = [PublicUserJWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def put(self, request, *args, **kwargs):
+        user = request.user
+        department_name = request.data.get("department_name")
+        public_id = request.data.get("public_id")
+
+        # 요청 데이터 검증
+        if not department_name or not public_id:
+            return Response(
+                {"error": "부서와 공공기관 ID는 필수 항목입니다."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            # 부서가 해당 공공기관에 존재하는지 확인
+            department = Public_Department.objects.get(department_name=department_name, public_id=public_id)
+
+            # 현재 부서와 동일한지 확인
+            if user.department == department:
+                return Response(
+                    {"error": "현재 선택된 부서와 동일합니다."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # 유효한 경우 사용자 부서 업데이트
+            user.department = department
+            user.save()
+            return Response({"message": "부서가 성공적으로 변경되었습니다."}, status=status.HTTP_200_OK)
+
+        except Public_Department.DoesNotExist:
+            return Response(
+                {"error": "해당 부서는 존재하지 않습니다."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        except Exception as e:
+            return Response(
+                {"error": f"예상치 못한 오류가 발생했습니다: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 # 사용자 프로필 업데이트 API
 class UserProfileView(APIView):
@@ -921,21 +1008,28 @@ class ComplaintsView(APIView):
         if not public:
             return Response({"error": "해당 사용자는 매장이 없습니다."}, status=status.HTTP_404_NOT_FOUND)
 
+        # 사용자의 부서 가져오기
+        user_department = user.department
+        if not user_department:
+            return Response({"error": "사용자가 속한 부서가 없습니다."}, status=status.HTTP_404_NOT_FOUND)
+
+        # 요청된 publicID 확인
         user_public_id = public.public_id
         request_public_id = request.data.get('publicID')
-        
-        # 받은 데이터 로그 확인
-        #logger.debug(f"user_public_id: {user_public_id}, request_public_id: {request_public_id}")
 
-        # 문자열 비교로 일치 여부 확인
         if str(user_public_id) != str(request_public_id):
-            #logger.debug(f"권한 오류: user_public_id({user_public_id}) != request_public_id({request_public_id})")
             return Response({"error": "권한이 없습니다."}, status=status.HTTP_403_FORBIDDEN)
 
-        complaints = Public_Complaint.objects.filter(public_id=request_public_id)
+        # 사용자가 속한 부서의 민원만 가져오기
+        complaints = Public_Complaint.objects.filter(
+            public_id=request_public_id,
+            department=user_department
+        )
+
         serializer = PublicComplaintSerializer(complaints, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
-    
+
+
 
 class ComplaintsCustomerView(APIView):
     permission_classes = [AllowAny]  # 인증된 사용자만 접근 가능
@@ -1049,7 +1143,7 @@ class ComplaintsRegisterView(APIView):
                         logger.error(f"부서 알림 SMS 전송 중 오류 발생: {str(e)}")
 
                 return Response(
-                    {"status": "success", "message": "민원이 성공적으로 접수되었으며, 부서 사용자들에게 알림이 전송되었습니다.", 
+                    {"status": "success", "message": "민원이 성공적으로 접수되었으며, \n 부서 사용자들에게 알림이 전송되었습니다.", 
                      "complaint_number": complaint_number, "public_slug": public.slug},
                     status=status.HTTP_201_CREATED
                 )
@@ -1062,7 +1156,9 @@ class ComplaintsRegisterView(APIView):
             logger.error(f"민원 접수 실패: 유효하지 않은 데이터 - {serializer.errors}")
             return Response({"status": "error", "message": "유효하지 않은 데이터", "errors": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
 
-class UpdateComplaintStatusView(APIView):
+
+
+class ComplaintUpdateStatusView(APIView):
     permission_classes = [AllowAny]
 
     def patch(self, request, id, *args, **kwargs): 
@@ -1108,40 +1204,55 @@ class UpdateComplaintStatusView(APIView):
 
     
 class ComplaintTransferView(APIView):
+    authentication_classes = [PublicUserJWTAuthentication]  # 커스텀 인증 클래스 사용
+    permission_classes = [IsAuthenticated]  # 인증된 사용자만 접근 가능
+
     def post(self, request):
         try:
-            # 디버깅: 요청 데이터 확인
-            print(f"Request data: {request.data}")
+            # 인증된 사용자 정보 가져오기
+            user = request.user
+            user_public = user.public  # 사용자가 속한 공공기관
+            print(f"Authenticated user: {user}, Public: {user_public}")
 
+            # 요청 데이터 확인
+            print(f"Request data: {request.data}")
             complaint_id = request.data.get('complaint_id')
             department_name = request.data.get('department')  # 부서 이름
             reason = request.data.get('reason')
 
-            # 디버깅: 필드 확인
-            print(f"Complaint ID: {complaint_id}, Department: {department_name}, Reason: {reason}")
-
+            # 필수 데이터 검증
             if not all([complaint_id, department_name, reason]):
                 return Response({'error': '모든 필드를 입력해야 합니다.'}, status=status.HTTP_400_BAD_REQUEST)
 
             # Public_Complaint 객체 가져오기
             try:
-                complaint = Public_Complaint.objects.get(complaint_id=complaint_id)
+                complaint = Public_Complaint.objects.get(complaint_id=complaint_id, public=user_public)
                 print(f"Complaint found: {complaint}")
             except Public_Complaint.DoesNotExist:
                 print("Complaint not found.")
                 return Response({'error': '민원을 찾을 수 없습니다.'}, status=status.HTTP_404_NOT_FOUND)
 
-            # Public_Department 객체 가져오기
+            # Public_Department 객체 가져오기 (사용자 공공기관 기준으로 필터링)
             try:
-                new_department = Public_Department.objects.get(department_name=department_name)
+                new_department = Public_Department.objects.get(
+                    department_name=department_name,
+                    public=user_public  # 사용자 공공기관 기준으로 검색
+                )
                 print(f"New Department found: {new_department}")
             except Public_Department.DoesNotExist:
-                print(f"Department '{department_name}' not found.")
-                return Response({'error': f"부서 '{department_name}'를 찾을 수 없습니다."}, status=status.HTTP_404_NOT_FOUND)
+                print(f"Department '{department_name}' not found in {user_public}.")
+                return Response(
+                    {'error': f"부서 '{department_name}'를 {user_public}에서 찾을 수 없습니다."},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+            except Public_Department.MultipleObjectsReturned:
+                print(f"Multiple departments named '{department_name}' found in {user_public}.")
+                return Response(
+                    {'error': f"'{department_name}' 부서가 중복되어 정확히 찾을 수 없습니다."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
 
             # 현재 부서와 선택된 부서 비교
-            print(f"Current Department: {complaint.department}, Selected Department: {new_department}")
-
             if complaint.department == new_department:
                 return Response(
                     {'error': '현재 부서와 동일한 부서로 이관할 수 없습니다.'},
@@ -1153,13 +1264,10 @@ class ComplaintTransferView(APIView):
             complaint.transfer_reason = reason
             complaint.save()
 
-            # 디버깅: 저장 성공
             print(f"Complaint successfully transferred to {new_department}")
 
             return Response({'success': True, 'message': '민원이 성공적으로 이관되었습니다.'}, status=status.HTTP_200_OK)
 
         except Exception as e:
-            # 디버깅: 예외 발생
             print(f"Error: {str(e)}")
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-

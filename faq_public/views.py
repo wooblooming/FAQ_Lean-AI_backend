@@ -1109,32 +1109,58 @@ class UpdateComplaintStatusView(APIView):
     
 class ComplaintTransferView(APIView):
     def post(self, request):
-        complaint_id = request.data.get('complaint_id')
-        department = request.data.get('department')
-        reason = request.data.get('reason')
-
-        if not all([complaint_id, department, reason]):
-            return Response({'error': '모든 필드를 입력해야 합니다.'}, status=status.HTTP_400_BAD_REQUEST)
-
         try:
-            complaint = Public_Complaint.objects.get(id=complaint_id)
+            # 디버깅: 요청 데이터 확인
+            print(f"Request data: {request.data}")
 
-            # 현재 부서와 선택한 부서가 같은지 확인
-            if complaint.assigned_department == department:
+            complaint_id = request.data.get('complaint_id')
+            department_name = request.data.get('department')  # 부서 이름
+            reason = request.data.get('reason')
+
+            # 디버깅: 필드 확인
+            print(f"Complaint ID: {complaint_id}, Department: {department_name}, Reason: {reason}")
+
+            if not all([complaint_id, department_name, reason]):
+                return Response({'error': '모든 필드를 입력해야 합니다.'}, status=status.HTTP_400_BAD_REQUEST)
+
+            # Public_Complaint 객체 가져오기
+            try:
+                complaint = Public_Complaint.objects.get(complaint_id=complaint_id)
+                print(f"Complaint found: {complaint}")
+            except Public_Complaint.DoesNotExist:
+                print("Complaint not found.")
+                return Response({'error': '민원을 찾을 수 없습니다.'}, status=status.HTTP_404_NOT_FOUND)
+
+            # Public_Department 객체 가져오기
+            try:
+                new_department = Public_Department.objects.get(department_name=department_name)
+                print(f"New Department found: {new_department}")
+            except Public_Department.DoesNotExist:
+                print(f"Department '{department_name}' not found.")
+                return Response({'error': f"부서 '{department_name}'를 찾을 수 없습니다."}, status=status.HTTP_404_NOT_FOUND)
+
+            # 현재 부서와 선택된 부서 비교
+            print(f"Current Department: {complaint.department}, Selected Department: {new_department}")
+
+            if complaint.department == new_department:
                 return Response(
                     {'error': '현재 부서와 동일한 부서로 이관할 수 없습니다.'},
                     status=status.HTTP_400_BAD_REQUEST
                 )
 
             # 부서 업데이트
-            complaint.assigned_department = department #현재 민원이 속한 부서(이전 부서)
+            complaint.department = new_department  # Public_Department 인스턴스를 할당
             complaint.transfer_reason = reason
             complaint.save()
 
+            # 디버깅: 저장 성공
+            print(f"Complaint successfully transferred to {new_department}")
+
             return Response({'success': True, 'message': '민원이 성공적으로 이관되었습니다.'}, status=status.HTTP_200_OK)
 
-        except Public_Complaint.DoesNotExist:
-            return Response({'error': '민원을 찾을 수 없습니다.'}, status=status.HTTP_404_NOT_FOUND)
         except Exception as e:
+            # 디버깅: 예외 발생
+            print(f"Error: {str(e)}")
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 

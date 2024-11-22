@@ -171,7 +171,7 @@ class Public_Complaint(models.Model):
     public = models.ForeignKey(Public, on_delete=models.CASCADE, related_name='complaints')
     department = models.ForeignKey(
         'Public_Department', on_delete=models.SET_NULL, 
-        null=True, 
+        null=True,  
         blank=True, 
         related_name='complaints'
     )

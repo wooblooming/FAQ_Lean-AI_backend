@@ -11,7 +11,7 @@ from .views import (
     UserProfileView, UserProfilePhotoUpdateView,
     EditView, StatisticsView, 
     ComplaintsView, ComplaintsRegisterView, ComplaintTransferView,
-    ComplaintUpdateStatusView, ComplaintsCustomerView,
+    ComplaintUpdateStatusView, ComplaintsCustomerView, ComplaintAnswerView,
     DepartmentListView, DepartmentCreateAPIView, DepartmentUpdateView,
 
 )
@@ -37,6 +37,7 @@ urlpatterns = [
     path('complaints/<str:id>/status/', ComplaintUpdateStatusView.as_view(), name='complaint_status_update'), # 민원 상태 업데이트
     path('complaint-customer/', ComplaintsCustomerView.as_view(), name='complaint_customer'),
     path('complaint-transfer/',ComplaintTransferView.as_view(), name='complaint_transfer'),
+    path('complaints-answer/',ComplaintAnswerView.as_view(), name='complaint_answer'),
     path('department-list/', DepartmentListView.as_view(), name='department_list'),
     path('department-create/', DepartmentCreateAPIView.as_view(), name='department-create'),
     path('department-update/', DepartmentUpdateView.as_view(), name='update-department'),

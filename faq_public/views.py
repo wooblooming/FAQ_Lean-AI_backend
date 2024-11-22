@@ -1143,7 +1143,7 @@ class ComplaintsRegisterView(APIView):
                         logger.error(f"부서 알림 SMS 전송 중 오류 발생: {str(e)}")
 
                 return Response(
-                    {"status": "success", "message": "민원이 성공적으로 접수되었으며, \n 부서 사용자들에게 알림이 전송되었습니다.", 
+                    {"status": "success", "message": "민원이 성공적으로 접수되었습니다.", 
                      "complaint_number": complaint_number, "public_slug": public.slug},
                     status=status.HTTP_201_CREATED
                 )
@@ -1271,3 +1271,69 @@ class ComplaintTransferView(APIView):
         except Exception as e:
             print(f"Error: {str(e)}")
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class ComplaintAnswerView(APIView):
+    authentication_classes = [PublicUserJWTAuthentication]  # 커스텀 인증 클래스 사용
+    permission_classes = [IsAuthenticated]  # 인증된 사용자만 접근 가능
+
+    def post(self, request):
+        try:
+            # 인증된 사용자 정보 가져오기
+            user = request.user
+            user_public = user.public  # 사용자가 속한 공공기관
+            print(f"Authenticated user: {user}, Public: {user_public}")
+
+            # 요청 데이터 확인
+            print(f"Request data: {request.data}")
+            complaint_id = request.data.get('complaint_id')
+            answer=request.data.get('answer')
+
+            # Public_Complaint 객체 가져오기
+            try:
+                complaint = Public_Complaint.objects.get(complaint_id=complaint_id)
+                print(f"Complaint found: {complaint}")
+            except Public_Complaint.DoesNotExist:
+                print("Complaint not found.")
+                return Response({'error': '민원을 찾을 수 없습니다.'}, status=status.HTTP_404_NOT_FOUND)
+
+            # 답변 저장
+            complaint.answer = answer
+            complaint.save()
+            print(f"Answer saved: {answer}")
+
+            # 작성자의 핸드폰 번호 확인
+            phone_number = complaint.phone  # 민원 작성자의 핸드폰 번호
+            if not phone_number:
+                print("Phone number not found.")
+                return Response({'error': '민원 작성자의 핸드폰 번호가 없습니다.'}, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Aligo API를 통한 문자 발송 데이터 준비
+            sms_data = {
+                'key': settings.ALIGO_API_KEY,  # Aligo API 키
+                'user_id': settings.ALIGO_USER_ID,  # Aligo 사용자 ID
+                'sender': settings.ALIGO_SENDER,  # 발신자 번호
+                'receiver': phone_number,  # 수신자 번호
+                'msg': f'안녕하세요, {complaint.title} 민원에 대한 답변이 등록되었습니다.',  # 메시지 내용
+                'testmode_yn': 'Y',  # 테스트 모드 (실제 전송 시 'N'으로 설정)
+            }
+
+            # Aligo API 호출
+            response = requests.post('https://apis.aligo.in/send/', data=sms_data)
+
+            # Aligo API 응답 확인
+            if response.status_code == 200:
+                response_data = response.json()
+                if response_data.get('result_code') == '1':  # Aligo 성공 코드
+                    print("SMS sent successfully.")
+                    return Response({'success': '문자가 성공적으로 발송되었습니다.'}, status=status.HTTP_200_OK)
+                else:
+                    print(f"Aligo error: {response_data.get('message')}")
+                    return Response({'error': response_data.get('message')}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            else:
+                print(f"HTTP error: {response.status_code}")
+                return Response({'error': '문자 발송 중 오류가 발생했습니다.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        except Exception as e:
+            print(f"Unexpected error: {str(e)}")
+            return Response({'error': '예기치 못한 오류가 발생했습니다.', 'details': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

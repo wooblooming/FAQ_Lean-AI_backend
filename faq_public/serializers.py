@@ -154,7 +154,7 @@ class PublicEditSerializer(serializers.ModelSerializer):
 class PublicComplaintSerializer(serializers.ModelSerializer):
     class Meta:
         model = Public_Complaint
-        fields = ['complaint_id', 'complaint_number', 'public', 'name', 'birth_date', 'phone', 'email', 'title', 'content', 'status', 'created_at', 'department']
+        fields = ['complaint_id', 'complaint_number', 'public', 'name', 'birth_date', 'phone', 'email', 'title', 'content', 'status', 'answer', 'created_at', 'department']
         read_only_fields = ['complaint_number', 'created_at']
 
     def validate(self, data):

@@ -103,18 +103,32 @@ class Public(models.Model):
         super().save(*args, **kwargs)  # 먼저 Public 객체 저장
 
         if is_new:
-            Public_Department.objects.get_or_create(department_name='기타', public=self)
+            # '기타' 부서를 생성할 때 중복 확인을 강화
+            try:
+                Public_Department.objects.get_or_create(
+                    department_name='기타',
+                    public=self
+                )
+            except IntegrityError:
+                # 이미 같은 부서 이름과 public 조합이 존재하는 경우
+                print(f"'기타' 부서는 이미 {self.public_name} 공공기관에 존재합니다.")
 
     def __str__(self):
         return self.public_name
 
+
 class Public_Department(models.Model):
     department_id = models.AutoField(primary_key=True)
-    department_name = models.CharField(max_length=100, unique=True)  # 부서명
+    department_name = models.CharField(max_length=100)  # 부서명
     public = models.ForeignKey('Public', on_delete=models.CASCADE, related_name='departments')  # Public과의 관계
+
+    class Meta:
+        app_label = 'faq_public'
+        unique_together = ('department_name', 'public')  # department_name과 public의 조합이 고유해야 함
 
     def __str__(self):
         return f"{self.department_name} ({self.public.public_name})"
+
 
 
 def profile_photo_upload_path(instance, filename):
@@ -157,7 +171,7 @@ class Public_Complaint(models.Model):
     public = models.ForeignKey(Public, on_delete=models.CASCADE, related_name='complaints')
     department = models.ForeignKey(
         'Public_Department', on_delete=models.SET_NULL, 
-        null=True, 
+        null=True,  
         blank=True, 
         related_name='complaints'
     )
@@ -169,6 +183,7 @@ class Public_Complaint(models.Model):
     content = models.TextField()
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='접수')
     created_at = models.DateTimeField(auto_now_add=True, blank=True, null=True)
+    answer = models.TextField(blank=True, null=True)
 
     class Meta:
         app_label = 'faq_public'

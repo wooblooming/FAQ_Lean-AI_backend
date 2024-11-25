@@ -25,7 +25,8 @@ class PublicUserSerializer(serializers.ModelSerializer):
         extra_kwargs = {
             'password': {'write_only': True},
             'email': {'required': False},
-            'department': {'required': False}
+            'department': {'required': False},
+            'public': {'required': True},
         }
 
     def validate_username(self, value):
@@ -51,18 +52,20 @@ class PublicUserSerializer(serializers.ModelSerializer):
         return value
 
     def create(self, validated_data):
-        department_name = validated_data.pop('department', None)  # department가 없는 경우 None으로 설정
+        department_name = validated_data.pop('department', None)
         public_institution = validated_data.get('public')
-        
-        # department가 있는 경우에만 조회 또는 생성
+
+        if not public_institution:
+            raise serializers.ValidationError("유효한 공공기관을 제공해야 합니다.")
+
         if department_name and public_institution:
+            # 부서가 없으면 생성
             department, _ = Public_Department.objects.get_or_create(
                 department_name=department_name,
                 public=public_institution
             )
             validated_data['department'] = department
 
-        # 비밀번호 해싱 처리
         validated_data['password'] = make_password(validated_data['password'])
         return super().create(validated_data)
 
@@ -151,5 +154,32 @@ class PublicEditSerializer(serializers.ModelSerializer):
 class PublicComplaintSerializer(serializers.ModelSerializer):
     class Meta:
         model = Public_Complaint
-        fields = ['complaint_id', 'complaint_number', 'public', 'name', 'birth_date', 'phone', 'email', 'title', 'content', 'status', 'created_at', 'department']
-        read_only_fields = ['complaint_number']
+        fields = ['complaint_id', 'complaint_number', 'public', 'name', 'birth_date', 'phone', 'email', 'title', 'content', 'status', 'answer', 'created_at', 'department']
+        read_only_fields = ['complaint_number', 'created_at']
+
+    def validate(self, data):
+        if not data.get('title') or not data.get('content'):
+            raise serializers.ValidationError("제목과 내용을 입력해야 합니다.")
+        return data
+
+
+class PublicDepartmentSerializer(serializers.ModelSerializer):
+    # 부서 업데이트 시 사용할 필드
+    department = serializers.CharField(max_length=255, required=False)
+    public_id = serializers.IntegerField(required=False)
+
+    class Meta:
+        model = Public_Department
+        fields = ['department_id', 'department_name', 'public', 'department', 'public_id']
+
+    def save(self, user=None):
+        if 'department_instance' in self.validated_data:
+            print("Updating department for user:", user)
+            print("New department instance:", self.validated_data['department_instance'])
+            
+            user.department = self.validated_data['department_instance']
+            user.save()
+            return user
+        else:
+            print("Creating new department...")
+            return super().save()

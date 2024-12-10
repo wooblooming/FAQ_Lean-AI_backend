@@ -25,7 +25,8 @@ class PublicUserSerializer(serializers.ModelSerializer):
         extra_kwargs = {
             'password': {'write_only': True},
             'email': {'required': False},
-            'department': {'required': False}
+            'department': {'required': False},
+            'public': {'required': True},
         }
 
     def validate_username(self, value):
@@ -51,18 +52,20 @@ class PublicUserSerializer(serializers.ModelSerializer):
         return value
 
     def create(self, validated_data):
-        department_name = validated_data.pop('department', None)  # department가 없는 경우 None으로 설정
+        department_name = validated_data.pop('department', None)
         public_institution = validated_data.get('public')
-        
-        # department가 있는 경우에만 조회 또는 생성
+
+        if not public_institution:
+            raise serializers.ValidationError("유효한 공공기관을 제공해야 합니다.")
+
         if department_name and public_institution:
+            # 부서가 없으면 생성
             department, _ = Public_Department.objects.get_or_create(
                 department_name=department_name,
                 public=public_institution
             )
             validated_data['department'] = department
 
-        # 비밀번호 해싱 처리
         validated_data['password'] = make_password(validated_data['password'])
         return super().create(validated_data)
 
@@ -71,21 +74,21 @@ class PublicUserSerializer(serializers.ModelSerializer):
 class PublicSerializer(serializers.ModelSerializer):
     class Meta:
         model = Public
-        fields = ['public_id', 'public_name', 'public_address', 'public_tel', 'banner', 'opening_hours', 'qr_code', 'agent_id', 'updated_at', 'slug']
+        fields = ['public_id', 'public_name', 'public_address', 'public_tel', 'logo', 'opening_hours', 'qr_code', 'agent_id', 'updated_at', 'slug']
 
-    def validate_banner(self, value):
+    def validate_logo(self, value):
         if value in [None, '']:
             return value
         error_message = validate_file(value, ['png', 'jpg', 'jpeg'], 1000 * 1024 * 1024, "배너 사진")
         if error_message:
-            raise serializers.ValidationError({"banner": error_message})
+            raise serializers.ValidationError({"logo": error_message})
         return value
 
 # 회원가입 시 공공기관 등록시 사용하는 시리얼라이저
 class PublicRegisterSerializer(serializers.ModelSerializer):
     class Meta:
         model = Public
-        fields = ['public_id', 'public_name', 'public_address', 'public_tel', 'opening_hours']
+        fields = ['public_id', 'public_name', 'public_address', 'public_tel', 'opening_hours', 'logo']
 
 
 # 로그인 요청에 사용하는 시리얼라이저
@@ -151,5 +154,41 @@ class PublicEditSerializer(serializers.ModelSerializer):
 class PublicComplaintSerializer(serializers.ModelSerializer):
     class Meta:
         model = Public_Complaint
-        fields = ['complaint_id', 'complaint_number', 'public', 'name', 'birth_date', 'phone', 'email', 'title', 'content', 'status', 'created_at', 'department']
-        read_only_fields = ['complaint_number']
+        fields = ['complaint_id', 'complaint_number', 'public', 'name', 'birth_date', 'phone', 'email', 'title', 'content', 'status', 'answer', 'created_at', 'department']
+        read_only_fields = ['complaint_number', 'created_at']
+
+    def validate(self, data):
+        # 제목과 내용 필드 검증
+        if not data.get('title'):
+            raise serializers.ValidationError({"title": "제목을 입력해야 합니다."})
+        if not data.get('content'):
+            raise serializers.ValidationError({"content": "내용을 입력해야 합니다."})
+        
+        # department 필드 검증
+        if not data.get('department'):
+            raise serializers.ValidationError({"department": "부서를 선택해야 합니다."})
+        
+        return data
+
+
+
+class PublicDepartmentSerializer(serializers.ModelSerializer):
+    # 부서 업데이트 시 사용할 필드
+    department = serializers.CharField(max_length=255, required=False)
+    public_id = serializers.IntegerField(required=False)
+
+    class Meta:
+        model = Public_Department
+        fields = ['department_id', 'department_name', 'public', 'department', 'public_id']
+
+    def save(self, user=None):
+        if 'department_instance' in self.validated_data:
+            print("Updating department for user:", user)
+            print("New department instance:", self.validated_data['department_instance'])
+            
+            user.department = self.validated_data['department_instance']
+            user.save()
+            return user
+        else:
+            print("Creating new department...")
+            return super().save()

@@ -9,9 +9,10 @@ from .views import (
     PublicCreateView, PublicListView, PublicDetailView,
     GenerateQrCodeView, QrCodeImageView,
     UserProfileView, UserProfilePhotoUpdateView,
-    EditView, DepartmentListView, StatisticsView, 
-    ComplaintsView, ComplaintsRegisterView, 
-    UpdateComplaintStatusView, ComplaintsCustomerView
+    RequestServiceView, StatisticsView, 
+    ComplaintsView, ComplaintsRegisterView, ComplaintTransferView,
+    ComplaintUpdateStatusView, ComplaintsCustomerView, ComplaintAnswerView,
+    DepartmentListView, DepartmentCreateAPIView, DepartmentUpdateView,
 
 )
 
@@ -30,12 +31,16 @@ urlpatterns = [
     path('qrCodeImage/', QrCodeImageView.as_view(), name='qr_code_image'),
     path('user-profile/', UserProfileView.as_view(), name='user_profile'),
     path('update-profile-photo/', UserProfilePhotoUpdateView.as_view(), name='update_profile_photo'),
-    path('edit/', EditView.as_view(), name='edit_request'),
+    path('request-service/', RequestServiceView.as_view(), name='request_data'),
     path('complaints/', ComplaintsView.as_view(), name='complaint_list'),              
     path('complaints/register/', ComplaintsRegisterView.as_view(), name='complaint_create'), 
-    path('complaints/<str:id>/status/', UpdateComplaintStatusView.as_view(), name='complaint-status_update'), # 민원 상태 업데이트
+    path('complaints/<str:id>/status/', ComplaintUpdateStatusView.as_view(), name='complaint_status_update'), # 민원 상태 업데이트
     path('complaint-customer/', ComplaintsCustomerView.as_view(), name='complaint_customer'),
+    path('complaint-transfer/',ComplaintTransferView.as_view(), name='complaint_transfer'),
+    path('complaints-answer/',ComplaintAnswerView.as_view(), name='complaint_answer'),
     path('department-list/', DepartmentListView.as_view(), name='department_list'),
+    path('department-create/', DepartmentCreateAPIView.as_view(), name='department-create'),
+    path('department-update/', DepartmentUpdateView.as_view(), name='update-department'),
 
     path('statistics/', StatisticsView.as_view(), name='statistics'),
         

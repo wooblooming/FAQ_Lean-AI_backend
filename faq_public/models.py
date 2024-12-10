@@ -1,12 +1,14 @@
-from django.db import models
+from django.db import models, IntegrityError
 from django.utils.text import slugify
 from django.conf import settings
 from django.utils import timezone
-import os
+import os, logging
 import json
 
 # User 모델을 관리하는 매니저 클래스 및 커스텀 User 모델
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager
+
+logger = logging.getLogger('faq')
 
 # 기존 UserManager, User, Store 모델은 그대로 유지
 class PublicUserManager(BaseUserManager):
@@ -35,7 +37,7 @@ class Public_User(AbstractBaseUser):
     phone = models.CharField(max_length=20, unique=True)
     email = models.EmailField(max_length=30, blank=True, null=True)
     profile_photo = models.ImageField(upload_to='profile_photos/', blank=True, null=True)
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True, blank=True, null=True)
     marketing = models.CharField(max_length=1, choices=[('Y', 'Yes'), ('N', 'No')], default='N')
 
     # 각 Public_User가 하나의 Public 기관에만 연결되도록 ForeignKey 필드 추가
@@ -71,17 +73,30 @@ class Public_User(AbstractBaseUser):
 
     def __str__(self):
         return self.username
+    
+
+    
+class DeviceToken(models.Model):
+    user = models.ForeignKey(Public_User, on_delete=models.CASCADE)
+    device_id = models.CharField(max_length=255)
+    token = models.CharField(max_length=255, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
+
+def logo_upload_path(instance, filename):
+    return os.path.join(f'banners/public_{instance.public_id}', filename)
 
 class Public(models.Model):
     public_id = models.AutoField(primary_key=True)
     public_name = models.CharField(max_length=20, unique=True)
     public_address = models.TextField(blank=True, null=True)
     public_tel = models.TextField(blank=True, null=True)
-    banner = models.ImageField(upload_to='banners/', blank=True, null=True)
+    logo = models.ImageField(upload_to=logo_upload_path, blank=True, null=True)
     opening_hours = models.TextField(blank=True, null=True)
     qr_code = models.CharField(max_length=100, blank=True, null=True)
     agent_id = models.CharField(max_length=100, blank=True, null=True)
-    updated_at = models.DateTimeField(auto_now=True)
+    updated_at = models.DateTimeField(auto_now=True, blank=True, null=True)
     slug = models.SlugField(max_length=255, unique=True)
 
     class Meta:
@@ -103,26 +118,38 @@ class Public(models.Model):
         super().save(*args, **kwargs)  # 먼저 Public 객체 저장
 
         if is_new:
-            Public_Department.objects.get_or_create(department_name='기타', public=self)
+            # '기타' 부서를 생성할 때 중복 확인을 강화
+            try:
+                Public_Department.objects.get_or_create(
+                    department_name='기타',
+                    public=self
+                )
+            except IntegrityError:
+                # 이미 같은 부서 이름과 public 조합이 존재하는 경우
+                logger.debug(f"'기타' 부서는 이미 {self.public_name} 공공기관에 존재합니다.")
 
     def __str__(self):
         return self.public_name
 
+
 class Public_Department(models.Model):
     department_id = models.AutoField(primary_key=True)
-    department_name = models.CharField(max_length=100, unique=True)  # 부서명
+    department_name = models.CharField(max_length=100)  # 부서명
     public = models.ForeignKey('Public', on_delete=models.CASCADE, related_name='departments')  # Public과의 관계
+
+    class Meta:
+        app_label = 'faq_public'
+        unique_together = ('department_name', 'public')  # department_name과 public의 조합이 고유해야 함
 
     def __str__(self):
         return f"{self.department_name} ({self.public.public_name})"
+
 
 
 def profile_photo_upload_path(instance, filename):
     public_id = instance.public.public_id if instance.public else 'default'
     return os.path.join(f'profile_photos/public_{public_id}', filename)
 
-def banner_upload_path(instance, filename):
-    return os.path.join(f'banners/public_{instance.public_id}', filename)
 
 def menu_image_upload_path(instance, filename):
     return os.path.join(f'menu_images/public_{instance.public.public_id}', filename)
@@ -137,7 +164,7 @@ class Public_Edit(models.Model):
     title = models.CharField(max_length=255, null=True, blank=True)
     content = models.TextField(null=True, blank=True)
     file = models.FileField(upload_to=user_directory_path, null=True, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True, blank=True, null=True)
 
     class Meta:
         app_label = 'faq_public'  # 라우터가 이 모델을 faq_public DB에서 사용하도록 설정
@@ -156,9 +183,9 @@ class Public_Complaint(models.Model):
     complaint_number = models.CharField(max_length=20, unique=True)
     public = models.ForeignKey(Public, on_delete=models.CASCADE, related_name='complaints')
     department = models.ForeignKey(
-        'Public_Department', on_delete=models.SET_NULL, 
-        null=True, 
-        blank=True, 
+        'Public_Department', on_delete=models.CASCADE, 
+        null=False,  
+        blank=False, 
         related_name='complaints'
     )
     name = models.CharField(max_length=100)
@@ -168,7 +195,8 @@ class Public_Complaint(models.Model):
     title = models.CharField(max_length=255)
     content = models.TextField()
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='접수')
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True, blank=True, null=True)
+    answer = models.TextField(blank=True, null=True)
 
     class Meta:
         app_label = 'faq_public'
@@ -195,3 +223,5 @@ class Public_Complaint(models.Model):
             self.complaint_number = f"{today}-{new_number}"
         
         super().save(*args, **kwargs)
+
+

@@ -15,3 +15,5 @@ class UserAdmin(admin.ModelAdmin):
         # 비밀번호를 그대로 저장
         obj.password = form.cleaned_data['password']
         obj.save()
+
+

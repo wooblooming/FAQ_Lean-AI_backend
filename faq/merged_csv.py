@@ -14,7 +14,7 @@ def merge_csv_files(folder_path, db_path='db.sqlite3'):
     csv_files = glob.glob(os.path.join(folder_path, '*.csv'))
 
     if not csv_files:
-        logger.debug("CSV 파일을 찾을 수 없습니다. 경로를 확인해주세요.")
+        #logger.debug("CSV 파일을 찾을 수 없습니다. 경로를 확인해주세요.")
         return None
 
     df_list = []
@@ -66,8 +66,8 @@ def merge_csv_files(folder_path, db_path='db.sqlite3'):
         # 병합된 데이터프레임을 지정된 폴더에 CSV로 저장
         output_path = os.path.join(folder_path, f"public_merged_output_{datetime.now().strftime('%Y-%m-%d')}.csv")
         merged_df.to_csv(output_path, index=False, encoding='utf-8-sig')
-        logger.debug("병합된 파일이 성공적으로 저장되었습니다.")
+        #logger.debug("병합된 파일이 성공적으로 저장되었습니다.")
         return output_path
     else:
-        logger.debug("병합할 데이터가 없습니다. 모든 파일이 비어있거나 오류가 발생했습니다.")
+        #logger.debug("병합할 데이터가 없습니다. 모든 파일이 비어있거나 오류가 발생했습니다.")
         return None

@@ -3,8 +3,6 @@ from django.core.cache import cache
 from django.db import transaction
 from django.conf import settings
 from django.shortcuts import get_object_or_404 
-from django.utils.text import slugify
-from urllib.parse import unquote, quote
 from django.utils import timezone 
 from .authentication import PublicUserJWTAuthentication
 from rest_framework import status
@@ -13,18 +11,9 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
-import requests, random, logging, json, os, shutil
-from .analyze_utterances import get_most_common_utterances, save_most_common_utterances_graph
+import requests, random, logging, json, os, shutil, qrcode
+from exponent_server_sdk import PushClient, PushMessage
 from .merged_csv import merge_csv_files
-
-
-# QR 코드 생성에 필요한 라이브러리
-import qrcode
-import os
-from django.views.decorators.http import require_POST
-from django.utils.decorators import method_decorator
-
-# 모델과 시리얼라이저 임포트
 from .models import Public_User, Public, Public_Department, Public_Edit, Public_Complaint
 from .serializers import (
     PublicUserSerializer, 
@@ -33,17 +22,16 @@ from .serializers import (
     PublicUsernameCheckSerializer, 
     PublicPasswordCheckSerializer,
     PublicEditSerializer, 
-    PublicComplaintSerializer
+    PublicComplaintSerializer,
+    PublicDepartmentSerializer,
 )
 
 # 디버깅을 위한 로거 설정
 logger = logging.getLogger('faq')
 
-from django.db import transaction
-import logging
 
-logger = logging.getLogger('faq')
-
+# User Management APIs
+# 회원가입 API
 class SignupView(APIView):
     permission_classes = [AllowAny]
      
@@ -70,6 +58,7 @@ class SignupView(APIView):
         try:
             # 기관 조회
             public_institution = Public.objects.get(public_id=institution_id)
+            user_data['public'] = public_institution.public_id  
             #logger.debug(f"공공기관 조회 성공: {public_institution}")
 
             # 사용자 생성과 기관 및 부서 연결을 트랜잭션으로 처리
@@ -119,8 +108,6 @@ class SignupView(APIView):
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-
-
 # 로그인 API 뷰
 class LoginView(APIView):
     permission_classes = [AllowAny]
@@ -154,88 +141,11 @@ class LoginView(APIView):
             return Response({"error": "아이디 또는 비밀번호가 일치하지 않습니다.\n 다시 시도해 주세요."}, status=status.HTTP_401_UNAUTHORIZED)
         
         except Exception as e:
-            print(f"Unhandled error: {e}")
+            #logger.debug(f"Unhandled error: {e}")
             return Response({"error": "로그인 처리 중 문제가 발생했습니다. 관리자에게 문의하세요."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-        
+               
 
-# 계정 비활성화
-class DeactivateAccountView(APIView):
-    """
-    사용자를 탈퇴시키는 뷰. 
-    사용자 계정을 비활성화하고 개인정보를 익명화 처리.
-    """
-    authentication_classes = [PublicUserJWTAuthentication]  # 커스텀 인증 클래스 사용
-    permission_classes = [IsAuthenticated]  # 인증된 사용자만 접근 가능
-
-    def post(self, request):
-        """
-        계정을 비활성화하고 익명화
-        """
-        user = request.user
-
-        # 사용자 탈퇴(비활성화 + 익명화) 처리
-        self.deactivate_and_anonymize_user(user)
-
-        return Response({"message": "계정이 성공적으로 탈퇴되었습니다."}, status=status.HTTP_200_OK)
-
-    def deactivate_and_anonymize_user(self, user):
-        """
-        사용자 탈퇴 시 개인정보를 익명화하고 계정을 비활성화.
-        """
-        # 사용자 정보 익명화
-        user.username = f'deleted_user_{user.id}'  # 사용자 아이디를 익명화
-        user.phone = f'000-0000-0000_{user.id}'  # 핸드폰 번호 삭제 또는 익명화
-        user.email = f'deleted_{user.id}@example.com'  # 이메일을 익명화
-        user.name = '탈퇴한 사용자'  # 이름 익명화
-
-        # 사용자 비활성화
-        user.is_active = False
-        user.deactivated_at = timezone.now()  # 비활성화 시간 기록
-        user.save()
-
-        # 사용자가 소유한 가게 및 관련된 데이터 익명화
-        self.anonymize_publics(user)
-
-        # 사용자와 관련된 Edit 데이터 익명화
-        self.anonymize_edits(user)
-
-        # 사용자 폴더 삭제
-        self.delete_user_folder(user)
-
-    def anonymize_publics(self, user):
-        """
-        탈퇴한 사용자의 가게 데이터를 익명화 처리.
-        """
-        publics = Public.objects.filter(user=user)
-        for public in publics:
-            public.public_name = f'익명화된 가게_{public.public_id}'  # 가게 이름 익명화
-            public.slug = f'deleted-public_{public.public_id}'  # 간단한 익명화 처리
-            public.save()
-
-    
-    def anonymize_edits(self, user):
-        """
-        탈퇴한 사용자의 Edit 데이터를 익명화 처리.
-        """
-        edits = Public_Edit.objects.filter(user=user)
-        for edit in edits:
-            edit.title = f'익명화된 제목_{edit.id}'
-            edit.content = '익명화된 내용'
-            edit.file = None  # 파일 삭제
-            edit.save()
-
-    def delete_user_folder(self, user):
-        """
-        탈퇴한 사용자의 파일이 저장된 폴더를 삭제.
-        """
-        # 사용자 파일이 저장된 경로
-        user_folder_path = os.path.join(settings.MEDIA_ROOT, 'uploads', str(user.id))
-        
-        # 폴더가 존재하면 삭제
-        if os.path.exists(user_folder_path):
-            shutil.rmtree(user_folder_path)
-
-        
+# Other User APIs
 # 사용자명 중복 확인 API
 class UsernameCheckView(APIView):
     permission_classes = [AllowAny]
@@ -255,6 +165,34 @@ class UsernameCheckView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
+# 비밀번호 재설정 API
+class PasswordResetView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        phone_number = request.data.get('phone')
+        new_password = request.data.get('new_password')
+
+        if not phone_number or not new_password:
+            return Response({'success': False, 'message': '전화번호와 새 비밀번호를 입력해주세요.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 비밀번호 정규식 검증
+        serializer = PublicPasswordCheckSerializer(data={'new_password': new_password})
+        if not serializer.is_valid():
+            return Response({'success': False, 'message': serializer.errors['new_password'][0]}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            # 사용자 비밀번호 업데이트
+            user = Public_User.objects.get(phone=phone_number)
+            user.password = make_password(new_password)
+            user.save()
+
+            return Response({'success': True, 'message': '비밀번호가 성공적으로 변경되었습니다.'}, status=status.HTTP_200_OK)
+        except Public_User.DoesNotExist:
+            return Response({'success': False, 'message': '해당 전화번호로 등록된 사용자가 없습니다.'}, status=status.HTTP_404_NOT_FOUND)
+        
+
+# User Verification APIs
 # 인증 코드 전송 API
 class SendVerificationCodeView(APIView):
     permission_classes = [AllowAny]
@@ -269,7 +207,7 @@ class SendVerificationCodeView(APIView):
         phone_number = request.data.get('phone')
         code_type = request.data.get('type')
 
-        logger.debug(f"phone_number: {phone_number}, code_type: {code_type}, user_id: {user_id}")
+        #logger.debug(f"phone_number: {phone_number}, code_type: {code_type}, user_id: {user_id}")
 
         # 필수 정보가 없으면 오류 반환
         if not phone_number or not code_type or (code_type not in ['findID', 'signup', 'complaint'] and not user_id):
@@ -300,11 +238,16 @@ class SendVerificationCodeView(APIView):
                 return Response({'success': False, 'message': '해당 ID로 등록된 사용자가 없습니다.'}, status=status.HTTP_404_NOT_FOUND)
 
         elif code_type == 'complaint':
-            # 전화번호로 민원 확인
+            # 전화번호와 민원 번호로 민원 확인
+            complaint_number = request.data.get('complaintNum')  # 추가된 필드
+            if not complaint_number:
+                return Response({'success': False, 'message': '민원 번호를 입력해주세요.'}, status=status.HTTP_400_BAD_REQUEST)
+
             try:
-                user = Public_Complaint.objects.get(phone=phone_number)
+                user = Public_Complaint.objects.get(phone=phone_number, complaint_number=complaint_number)
             except Public_Complaint.DoesNotExist:
-                return Response({'success': False, 'message': '해당 전화번호로 접수된 민원이 없습니다.'}, status=status.HTTP_404_NOT_FOUND)
+                return Response({'success': False, 'message': '해당 정보로 접수된 민원이 없습니다.'}, status=status.HTTP_404_NOT_FOUND)
+
             
         else:
             # 회원가입 등 기타 경우: 전화번호 중복 확인
@@ -312,9 +255,12 @@ class SendVerificationCodeView(APIView):
                 return Response({'success': False, 'message': '이미 가입된 전화번호입니다.'}, status=status.HTTP_400_BAD_REQUEST)
 
         # 인증 코드 생성 및 캐시에 저장
-        verification_code = self.generate_verification_code()
         cache_key = f'{code_type}_verification_code_{phone_number}'
-        cache.set(cache_key, verification_code, timeout=300)
+        verification_code = self.generate_verification_code()
+        cache.set(cache_key, verification_code, timeout=300)  # 항상 새 값 저장
+        #logger.debug(f"New Verification Code Set: {verification_code}")
+
+
 
         # SMS 전송 API 호출
         sms_data = {
@@ -346,115 +292,121 @@ class VerifyCodeView(APIView):
         user_id = request.data.get('user_id') 
 
         # 입력받은 데이터 로깅
-        logger.debug(f"Received Data - phone_number: {phone_number}, entered_code: {entered_code}, code_type: {code_type}, user_id: {user_id}")
-
+        #logger.debug(f"Received Data - phone_number: {phone_number}, entered_code: {entered_code}, code_type: {code_type}, user_id: {user_id}")
+        #logger.debug(f"Request Data: {request.data}")
+        
         # 필수 정보 확인
         if not phone_number or not code_type or (code_type not in ['findID', 'signup', 'complaint'] and not user_id):
-            logger.debug("필수 정보 누락")
+            #logger.debug("필수 정보 누락")
             return Response({'success': False, 'message': '필수 정보(전화번호, 인증 번호, 사용자 ID)를 입력해주세요.'}, status=status.HTTP_400_BAD_REQUEST)
 
         # 캐시에서 인증 코드 가져오기
         cache_key = f'{code_type}_verification_code_{phone_number}'
         saved_code = cache.get(cache_key)
-        logger.debug(f"Saved code from cache: {saved_code}")
+        #logger.debug(f"Cache Key: {cache_key}, Saved Code: {saved_code}")
+        #logger.debug(f"Entered Code: {entered_code}")
 
         # 인증 코드 일치 확인
-        if saved_code and saved_code == entered_code:
+        if saved_code and str(saved_code).strip() == str(entered_code).strip():
+            #logger.debug("Verification successful.")
             # 유형별 처리
             if code_type == 'mypage':
                 try:
                     user = Public_User.objects.get(username=user_id)
                     user.phone = phone_number
                     user.save()
-                    logger.debug("전화번호 업데이트 완료")
+                    #logger.debug("전화번호 업데이트 완료")
                     return Response({'success': True, 'message': '인증이 완료되었으며, 전화번호가 업데이트되었습니다.'}, status=status.HTTP_200_OK)
                 except Public_User.DoesNotExist:
-                    logger.debug("ID에 해당하는 사용자 없음")
+                    #logger.debug("ID에 해당하는 사용자 없음")
                     return Response({'success': False, 'message': '해당 ID로 등록된 사용자가 없습니다.'}, status=status.HTTP_404_NOT_FOUND)
 
             elif code_type in ['findID', 'findPW']:
                 try:
                     user = Public_User.objects.get(phone=phone_number)
-                    logger.debug("사용자 정보 반환")
+                    #logger.debug("사용자 정보 반환")
                     return Response({
                         'success': True,
                         'message': '인증이 완료되었습니다.',
                         'user_id': user.username,
-                        'user_password': user.password,  # 비밀번호는 일반적으로 반환하지 않음
                         'date_joined': user.created_at.strftime('%Y.%m.%d')
                     }, status=status.HTTP_200_OK)
                 except Public_User.DoesNotExist:
-                    logger.debug("전화번호에 해당하는 사용자 없음")
+                    #logger.debug("전화번호에 해당하는 사용자 없음")
                     return Response({'success': False, 'message': '해당 전화번호로 등록된 사용자가 없습니다.'}, status=status.HTTP_404_NOT_FOUND)
                 
             elif code_type == 'complaint':
+                # 전화번호와 민원 번호로 민원 확인
+                complaint_number = request.data.get('complaintNum')  # 추가된 필드
+                #logger.debug(f"complaintNum: {request.data.get('complaintNum')}")
+                #logger.debug(f"complaint_number: {complaint_number}")
+
+
+                if not complaint_number:
+                    #logger.debug("Complaint number not provided.")
+                    return Response({'success': False, 'message': '민원 번호를 입력해주세요.'}, status=status.HTTP_400_BAD_REQUEST)
+
                 try:
-                    complaint = Public_Complaint.objects.get(phone=phone_number)
-                    logger.debug("민원 핸드폰 인증 성공")
-                    return Response({'success': True}, status=status.HTTP_200_OK)
+                    user = Public_Complaint.objects.get(phone=phone_number, complaint_number=complaint_number)
+                    #logger.debug(f"Complaint verification successful for complaint number: {complaint_number}")
+                    return Response({'success': True, 'message': '민원이 확인되었습니다.', 'complaint': user.complaint_number}, status=status.HTTP_200_OK)
                 except Public_Complaint.DoesNotExist:
-                    logger.debug("전화번호에 해당하는 민원 없음")
-                    return Response({'success': False, 'message': '해당 전화번호로 접수된 민원이 없습니다.'}, status=status.HTTP_404_NOT_FOUND)
+                    #logger.debug(f"No complaint found for phone: {phone_number}, complaintNum: {complaint_number}")
+                    return Response({'success': False, 'message': '해당 정보로 접수된 민원이 없습니다.'}, status=status.HTTP_404_NOT_FOUND)
                 
-            else:
-                logger.debug("회원가입 인증 성공")
+            elif code_type == 'signup':
+                #logger.debug("회원가입 인증 성공")
                 return Response({'success': True, 'message': '회원가입 인증이 완료되었습니다.'}, status=status.HTTP_200_OK)
-        
-        # 인증 실패 처리
-        logger.debug("인증 번호 불일치")
-        return Response({'success': False, 'message': '인증 번호가 일치하지 않습니다.'}, status=status.HTTP_400_BAD_REQUEST)
+            
+        else:
+            # 인증 실패 처리
+            #logger.debug("인증 번호 불일치")
+            return Response({'success': False, 'message': '인증 번호가 일치하지 않습니다.'}, status=status.HTTP_400_BAD_REQUEST)
 
 
-
-# 비밀번호 재설정 API
-class PasswordResetView(APIView):
-    permission_classes = [AllowAny]
-
-    def post(self, request):
-        phone_number = request.data.get('phone')
-        new_password = request.data.get('new_password')
-
-        if not phone_number or not new_password:
-            return Response({'success': False, 'message': '전화번호와 새 비밀번호를 입력해주세요.'}, status=status.HTTP_400_BAD_REQUEST)
-
-        # 비밀번호 정규식 검증
-        serializer = PublicPasswordCheckSerializer(data={'new_password': new_password})
-        if not serializer.is_valid():
-            return Response({'success': False, 'message': serializer.errors['new_password'][0]}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            # 사용자 비밀번호 업데이트
-            user = Public_User.objects.get(phone=phone_number)
-            user.password = make_password(new_password)
-            user.save()
-
-            return Response({'success': True, 'message': '비밀번호가 성공적으로 변경되었습니다.'}, status=status.HTTP_200_OK)
-        except Public_User.DoesNotExist:
-            return Response({'success': False, 'message': '해당 전화번호로 등록된 사용자가 없습니다.'}, status=status.HTTP_404_NOT_FOUND)
-        
-
-# 공공기관 정보 저장 API
+# Public Management APIs
+# 공공기관 생성 API
 class PublicCreateView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request, *args, **kwargs):
-        #logger.debug(f"Request data: {request.data}")
-
-        # 회원가입 과정에서 사용하는 PublicRegisterSerializer를 통해 데이터 검증 및 저장
+        # 임시로 로고를 제외하고 저장
+        logo_file = request.FILES.get('logo', None)  # 로고 파일 별도로 저장
         register_serializer = PublicRegisterSerializer(data=request.data)
-        
+
         if register_serializer.is_valid():
             try:
-                register_serializer.save()  # 유효한 경우, 데이터베이스에 저장
-                return Response({"status": "success", "message": "공공기관 정보가 성공적으로 등록되었습니다.", "data": register_serializer.data}, status=status.HTTP_201_CREATED)
-            
+                # 데이터베이스에 저장
+                public_instance = register_serializer.save()
+
+                # 로고 파일 저장 (public_id가 생성된 후 저장 가능)
+                if logo_file:
+                    public_instance.logo = logo_file
+                    public_instance.save()
+
+                return Response(
+                    {
+                        "status": "success",
+                        "message": "공공기관 정보가 성공적으로 등록되었습니다.",
+                        "data": PublicSerializer(public_instance).data,
+                    },
+                    status=status.HTTP_201_CREATED,
+                )
             except ValidationError as e:
-                # 유효하지 않은 경우, 오류 메시지 출력
-                logger.debug(f"Validation errors: {register_serializer.errors}")
-                return Response(register_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+                logger.error(f"Validation error during save: {str(e)}")
+                return Response(
+                    {"error": "데이터 저장 중 오류가 발생했습니다."}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+        logger.warning(f"Validation errors: {register_serializer.errors}")
+        return Response(
+            {"status": "error", "errors": register_serializer.errors},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
 
 
-
+# 공공기관 및 사용자 출력 API
 class UserPublicInfoView(APIView):
     authentication_classes = [PublicUserJWTAuthentication]  # 커스텀 인증 클래스 사용
     permission_classes = [IsAuthenticated]  # 인증된 사용자만 접근 가능
@@ -498,6 +450,7 @@ class UserPublicInfoView(APIView):
             return Response({"error": "서버 오류가 발생했습니다."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
+# 공공기관 출력 API
 class PublicInfoView(APIView):
     permission_classes = [AllowAny]  # 기본적으로 인증 없이 접근 가능
 
@@ -541,7 +494,6 @@ class PublicInfoView(APIView):
             return Response({"error": "서버 오류가 발생했습니다."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-
 # 모든 공공기관 출력 API
 class PublicListView(APIView):
     permission_classes = [AllowAny]
@@ -554,7 +506,6 @@ class PublicListView(APIView):
         except Exception as e:
             logger.error(f"PublicListView 오류 발생: {str(e)}")
             return Response({"error": "기관 목록을 불러오는 중 오류가 발생했습니다."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
 
 
 # 선택한 공공기관 정보 출력
@@ -590,27 +541,37 @@ class PublicDetailView(APIView):
             return Response({"error": "해당 기관을 찾을 수 없습니다."}, status=status.HTTP_404_NOT_FOUND)
 
 
+# 공공기관에 있는 모든 부서 출력 API
 class DepartmentListView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
         try:
-            # 요청에서 slug 가져오기
             slug = request.data.get('slug')
-            if not slug:
-                return Response({'error': 'slug가 제공되지 않았습니다.'}, status=400)
+            public_id = request.data.get('publicID')
 
-            # slug에 해당하는 Public 객체 찾기
-            public = Public.objects.filter(slug=slug).first()
-            if not public:
-                return Response({'error': '해당 slug에 일치하는 Public이 없습니다.'}, status=404)
+            if not slug and not public_id:
+                return Response({'error': 'slug 또는 publicID 중 하나를 제공해야 합니다.'}, status=400)
 
-            # Public_Department에서 해당 public_id에 대한 부서 목록 가져오기
-            departments = list(
-                Public_Department.objects.filter(public=public)
-                .values_list('department_name', flat=True)
-                .distinct()
-            )
+            if public_id:
+                # publicID를 기반으로 Public_Department 찾기
+                departments = list(
+                    Public_Department.objects.filter(public_id=public_id)
+                    .values_list('department_name', flat=True)
+                    .distinct()
+                )
+            elif slug:
+                # slug를 기반으로 Public 객체 찾기
+                public = Public.objects.filter(slug=slug).first()
+                if not public:
+                    return Response({'error': '해당 slug에 일치하는 Public이 없습니다.'}, status=404)
+
+                # slug에 해당하는 Public의 Public_Department 찾기
+                departments = list(
+                    Public_Department.objects.filter(public=public)
+                    .values_list('department_name', flat=True)
+                    .distinct()
+                )
 
             # '기타' 항목 추가
             if '기타' not in departments:
@@ -620,78 +581,82 @@ class DepartmentListView(APIView):
             if departments:
                 return Response({'departments': list(departments)}, status=200)
             else:
-                return Response({'message': '해당 public_id에 대한 부서가 없습니다.'}, status=404)
+                return Response({'message': '해당 public_id 또는 slug에 대한 부서가 없습니다.'}, status=404)
 
         except Exception as e:
             return Response({'error': str(e)}, status=500)
 
 
-
-
-# 사용자 프로필 업데이트 API
-class UserProfileView(APIView):
-    # 이 뷰는 인증된 사용자만 접근할 수 있도록 설정
-    authentication_classes = [PublicUserJWTAuthentication]  # 커스텀 인증 클래스 사용
-    permission_classes = [IsAuthenticated]  # 인증된 사용자만 접근 가능
-
-    # 유저 프로필을 업데이트하는 메서드
-    def put(self, request):
-        user = request.user
-        data = request.data
-
-        # 사용자 정보 업데이트
-        user.name = data.get('name', user.name)
-        user.email = data.get('email', user.email)
-        user.phone = data.get('phone_number', user.phone)
-        user.marketing = data.get('marketing', user.marketing)
-
-        # 부서 정보 업데이트
-        department_name = data.get('department')
-        if department_name:
-            public = user.public  # 사용자와 연결된 Public 객체
-            if public:
-                department, created = Public_Department.objects.get_or_create(
-                    department_name=department_name, public=public
-                )
-                user.department = department
-
-        user.save()
-
-        return Response({
-            'message': 'User profile updated successfully',
-            'profile_photo': user.profile_photo.url if user.profile_photo else "/media/profile_default_img.jpg",
-            'name': user.name,
-            'email': user.email,
-            'phone_number': user.phone,
-            'marketing': user.marketing,
-            'department': {
-                "department_id": user.department.department_id if user.department else "",
-                "department_name": user.department.department_name if user.department else ""
-            }
-        }, status=status.HTTP_200_OK)
-
-
-        
-# 프로필 사진 업데이트 API
-class UserProfilePhotoUpdateView(APIView):
-    authentication_classes = [PublicUserJWTAuthentication]  # 커스텀 인증 클래스 사용
-    permission_classes = [IsAuthenticated]  # 인증된 사용자만 접근 가능
-
+# 부서 생성 API
+class DepartmentCreateAPIView(APIView):
     def post(self, request):
-        # 프로필 사진 업데이트
+        department_name = request.data.get('department_name')
+        public_id = request.data.get('public_id')
+
+        if not department_name or not public_id:
+            return Response(
+                {"error": "부서 이름과 공공기관 ID는 필수입니다."}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            public = Public.objects.get(public_id=public_id)
+        except Public.DoesNotExist:
+            return Response(
+                {"error": "유효하지 않은 공공기관 ID입니다."}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # 부서 생성
+        department = Public_Department.objects.create(department_name=department_name, public=public)
+        serializer = PublicDepartmentSerializer(department)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+# 사용자 부서 이동 API
+class DepartmentUpdateView(APIView):
+    authentication_classes = [PublicUserJWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def put(self, request, *args, **kwargs):
         user = request.user
-        profile_photo_url = request.data.get('profile_photo')
+        department_name = request.data.get("department_name")
+        public_id = request.data.get("public_id")
 
-        if profile_photo_url == "":  # 빈 문자열일 경우 프로필 사진을 None으로 설정
-            user.profile_photo = None
-        elif profile_photo_url == "default":  # 특정 키워드를 기본 이미지 설정을 위한 트리거로 사용
-            user.profile_photo = 'profile_photos/profile_default_img.jpg'
-        else:  # 다른 경우, 전달된 URL을 프로필 사진으로 설정
-            user.profile_photo = profile_photo_url
+        # 요청 데이터 검증
+        if not department_name or not public_id:
+            return Response(
+                {"error": "부서와 공공기관 ID는 필수 항목입니다."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
-        # 변경 사항을 데이터베이스에 저장
-        user.save()
-        return Response({"message": "프로필 사진이 성공적으로 업데이트되었습니다."}, status=status.HTTP_200_OK)
+        try:
+            # 부서가 해당 공공기관에 존재하는지 확인
+            department = Public_Department.objects.get(department_name=department_name, public_id=public_id)
+
+            # 현재 부서와 동일한지 확인
+            if user.department == department:
+                return Response(
+                    {"error": "현재 선택된 부서와 동일합니다."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # 유효한 경우 사용자 부서 업데이트
+            user.department = department
+            user.save()
+            return Response({"message": "부서가 성공적으로 변경되었습니다."}, status=status.HTTP_200_OK)
+
+        except Public_Department.DoesNotExist:
+            return Response(
+                {"error": "해당 부서는 존재하지 않습니다."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        except Exception as e:
+            return Response(
+                {"error": f"예상치 못한 오류가 발생했습니다: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 
 class GenerateQrCodeView(APIView):
@@ -773,16 +738,23 @@ class QrCodeImageView(APIView):
 
     def post(self, request):
         try:
+            # 요청 데이터 로깅
+            #logger.debug(f"Request data: {request.data}")
+            #logger.debug(f"Request user: {request.user}")
+
             public_id = request.data.get('public_id')  # 요청에서 public_id 가져오기
             if not public_id:
+                #logger.debug("public_id가 요청에 없습니다.")
                 return Response({'error': 'public_id가 필요합니다.'}, status=400)
 
             # 사용자의 스토어 정보 가져오기
             public = Public.objects.get(public_id=public_id, public_users=request.user)
+            #logger.debug(f"Public object found: {public}")
 
             if public.qr_code:
                 public_name = public.public_name
                 qr_code_path = public.qr_code.lstrip('/')  # 경로에서 앞의 '/' 제거
+                #logger.debug(f"QR code path: {qr_code_path}")
 
                 if qr_code_path.startswith('media/'):
                     qr_code_url = request.build_absolute_uri(f'/{qr_code_path}')
@@ -791,21 +763,142 @@ class QrCodeImageView(APIView):
 
                 qr_content_url = f'https://mumulai.com/publicIntroduction/{public.slug}'
 
+                #logger.debug(f"QR code URL: {qr_code_url}, Content URL: {qr_content_url}")
+
                 return Response({
                     'public_name': public_name,
                     'qr_code_image_url': qr_code_url,
                     'qr_content_url': qr_content_url
                 }, status=200)
             else:
+                #logger.debug("QR 코드가 없습니다.")
                 return Response({'qr_code_image_url': None}, status=200)
 
         except Public.DoesNotExist:
+            #logger.debug(f"Public object not found for public_id: {public_id}, user: {request.user}")
             return Response({'error': 'public not found'}, status=404)
         except Exception as e:
-            logger.error(f"Unexpected error: {e}")
+            logger.error(f"Unexpected error: {e}", exc_info=True)  # 예외 정보 전체 로깅
             return Response({'error': 'An unexpected error occurred.'}, status=500)
 
 
+# User Profile APIs
+# 사용자 프로필 업데이트 API
+class UserProfileView(APIView):
+    # 이 뷰는 인증된 사용자만 접근할 수 있도록 설정
+    authentication_classes = [PublicUserJWTAuthentication]  # 커스텀 인증 클래스 사용
+    permission_classes = [IsAuthenticated]  # 인증된 사용자만 접근 가능
+
+    def post(self, request):
+        user = request.user
+        logger.debug(f"UserProfileView POST called by user: {user}")
+
+        try:
+            public = Public.objects.filter(public_users=user).first()
+            logger.debug(f"Store found for user {user.username}: {store}")
+        except Public.DoesNotExist:
+            public = None
+            logger.debug(f"No store found for user {user.username}")
+
+        profile_photo_url = user.profile_photo.url if user.profile_photo else "/media/profile_photos/profile_default_img.jpg"
+        qr_code_url = public.qr_code if public and public.qr_code else ""
+        logo_url = public.logo.url if public and public.logo else ""
+
+        response_data = {
+            'profile_photo': profile_photo_url,
+            'name': user.name,
+            'email': user.email,
+            'phone_number': user.phone,
+            'business_name': public.public_name if public else '',
+            'business_address': public.public_address if public else '',
+            'user_id': user.username,
+            'qr_code_url': qr_code_url,
+            'logo_url': logo_url,
+            'marketing': user.marketing,
+            'department': {
+                "department_id": user.department.department_id if user.department else "",
+                "department_name": user.department.department_name if user.department else ""
+            }
+        }
+        logger.debug(f"Response data: {response_data}")
+
+        return Response(response_data)
+
+
+    # 유저 프로필을 업데이트하는 메서드
+    def put(self, request):
+        user = request.user
+        data = request.data
+
+        # 사용자 정보 업데이트
+        user.name = data.get('name', user.name)
+        user.email = data.get('email', user.email)
+        user.phone = data.get('phone_number', user.phone)
+        user.marketing = data.get('marketing', user.marketing)
+
+        # 부서 정보 업데이트
+        department_name = data.get('department')
+        if department_name:
+            public = user.public  # 사용자와 연결된 Public 객체
+            if public:
+                # 현재 부서와 요청한 부서가 동일한지 확인
+                current_department = user.department.department_name if user.department else None
+                if current_department == department_name:
+                    return Response({
+                        'error': '현재 부서와 동일한 부서로 이동할 수 없습니다.'
+                    }, status=status.HTTP_400_BAD_REQUEST)
+
+                try:
+                    department, created = Public_Department.objects.get_or_create(
+                        department_name=department_name,
+                        public=public
+                    )
+                    user.department = department
+                except Exception as e:
+                    logger.error(f"부서 생성 또는 가져오기 실패: {e}")
+                    return Response({
+                        'error': '부서 생성 중 문제가 발생했습니다.'
+                    }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        user.save()
+
+        return Response({
+            'message': 'User profile updated successfully',
+            'profile_photo': user.profile_photo.url if user.profile_photo else "/media/profile_default_img.jpg",
+            'name': user.name,
+            'email': user.email,
+            'phone_number': user.phone,
+            'marketing': user.marketing,
+            'department': {
+                "department_id": user.department.department_id if user.department else "",
+                "department_name": user.department.department_name if user.department else ""
+            }
+        }, status=status.HTTP_200_OK)
+
+
+# 프로필 사진 업데이트 API
+class UserProfilePhotoUpdateView(APIView):
+    authentication_classes = [PublicUserJWTAuthentication]  # 커스텀 인증 클래스 사용
+    permission_classes = [IsAuthenticated]  # 인증된 사용자만 접근 가능
+
+    def post(self, request):
+        # 프로필 사진 업데이트
+        user = request.user
+        profile_photo_url = request.data.get('profile_photo')
+
+        if profile_photo_url == "":  # 빈 문자열일 경우 프로필 사진을 None으로 설정
+            user.profile_photo = None
+        elif profile_photo_url == "default":  # 특정 키워드를 기본 이미지 설정을 위한 트리거로 사용
+            user.profile_photo = 'profile_photos/profile_default_img.jpg'
+        else:  # 다른 경우, 전달된 URL을 프로필 사진으로 설정
+            user.profile_photo = profile_photo_url
+
+        # 변경 사항을 데이터베이스에 저장
+        user.save()
+        return Response({"message": "프로필 사진이 성공적으로 업데이트되었습니다."}, status=status.HTTP_200_OK)
+
+
+# Statistics APIs
 class StatisticsView(APIView):
     authentication_classes = [PublicUserJWTAuthentication]  # 커스텀 인증 클래스 사용
     permission_classes = [IsAuthenticated]  # 인증된 사용자만 접근 가능
@@ -828,17 +921,6 @@ class StatisticsView(APIView):
                 #logger.debug("병합된 파일이 존재하지 않습니다.")
                 return Response({"status": "no file", "message": "해당 파일이 존재하지 않습니다."}, status=status.HTTP_404_NOT_FOUND)
 
-            # 최다 언급 질문 3개 얻기
-            most_common_utterances = get_most_common_utterances(merged_file_path)
-
-            # 이미지 파일 저장 경로 생성
-            image_folder_path = f'faq_backend/media/statistics/{request.user.user_id}'
-            os.makedirs(image_folder_path, exist_ok=True)  # 폴더가 없으면 생성
-            output_image_path = os.path.join(image_folder_path, 'most_common_utterances.png')
-
-            # 그래프 이미지 생성 및 저장
-            save_most_common_utterances_graph(most_common_utterances, output_image_path)
-
             # 이미지 URL을 응답에 포함
             response_data = {
                 "status": "success",
@@ -854,8 +936,9 @@ class StatisticsView(APIView):
             return Response({"status": "error", "message": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
+# Service APIs
 # 요청 사항 등록 API
-class EditView(APIView):
+class RequestServiceView(APIView):
     # 이 뷰는 로그인된 사용자만 접근 가능하도록 설정
     authentication_classes = [PublicUserJWTAuthentication]  # 커스텀 인증 클래스 사용
     permission_classes = [IsAuthenticated]  # 인증된 사용자만 접근 가능
@@ -889,7 +972,7 @@ class EditView(APIView):
                     edit_serializer.save()
                     saved_data.append(edit_serializer.data)
                 else:
-                    logger.debug(f"에러 메시지 : {edit_serializer.errors}")
+                    #logger.debug(f"에러 메시지 : {edit_serializer.errors}")
                     return Response(edit_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
         else:
             # 파일이 없을 경우, 제목과 내용만 처리
@@ -905,13 +988,15 @@ class EditView(APIView):
                 edit_serializer.save()
                 saved_data.append(edit_serializer.data)
             else:
-                logger.debug(f"에러 메시지 : {edit_serializer.errors}")
+                #logger.debug(f"에러 메시지 : {edit_serializer.errors}")
                 return Response(edit_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         return Response(saved_data, status=status.HTTP_201_CREATED)
 
 
 
+# Complaint Management APIs
+# 민원 출력 API
 class ComplaintsView(APIView):
     authentication_classes = [PublicUserJWTAuthentication]  # 커스텀 인증 클래스 사용
     permission_classes = [IsAuthenticated]  # 인증된 사용자만 접근 가능
@@ -926,22 +1011,29 @@ class ComplaintsView(APIView):
         if not public:
             return Response({"error": "해당 사용자는 매장이 없습니다."}, status=status.HTTP_404_NOT_FOUND)
 
+        # 사용자의 부서 가져오기
+        user_department = user.department
+        if not user_department:
+            return Response({"error": "사용자가 속한 부서가 없습니다."}, status=status.HTTP_404_NOT_FOUND)
+
+        # 요청된 publicID 확인
         user_public_id = public.public_id
         request_public_id = request.data.get('publicID')
-        
-        # 받은 데이터 로그 확인
-        #logger.debug(f"user_public_id: {user_public_id}, request_public_id: {request_public_id}")
 
-        # 문자열 비교로 일치 여부 확인
         if str(user_public_id) != str(request_public_id):
-            #logger.debug(f"권한 오류: user_public_id({user_public_id}) != request_public_id({request_public_id})")
             return Response({"error": "권한이 없습니다."}, status=status.HTTP_403_FORBIDDEN)
 
-        complaints = Public_Complaint.objects.filter(public_id=request_public_id)
+        # 사용자가 속한 부서의 민원만 가져오기
+        complaints = Public_Complaint.objects.filter(
+            public_id=request_public_id,
+            department=user_department
+        )
+
         serializer = PublicComplaintSerializer(complaints, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
-    
 
+
+# 민원인 측 민원 출력 API
 class ComplaintsCustomerView(APIView):
     permission_classes = [AllowAny]  # 인증된 사용자만 접근 가능
 
@@ -966,7 +1058,8 @@ class ComplaintsCustomerView(APIView):
                     "name": complaint.name,  # 작성자 이름 필드
                     "created_at": complaint.created_at.strftime("%Y-%m-%d"),
                     "status": complaint.status,
-                    "content": complaint.content  # 민원 내용
+                    "content": complaint.content,  # 민원 내용
+                    "answer" : complaint.answer
                 }
             }, status=status.HTTP_200_OK)
         
@@ -974,6 +1067,7 @@ class ComplaintsCustomerView(APIView):
             return Response({"success": False, "message": "해당 접수번호와 핸드폰 번호에 해당하는 민원이 없습니다."}, status=status.HTTP_404_NOT_FOUND)
 
 
+# 민원 등록 API
 class ComplaintsRegisterView(APIView):
     permission_classes = [AllowAny]
 
@@ -1044,6 +1138,7 @@ class ComplaintsRegisterView(APIView):
                         'msg': f'[{department_name}] 부서에 새 민원이 접수되었습니다. 접수번호: [{complaint_number}]',
                         'testmode_yn': 'Y',
                     }
+
                     try:
                         dept_response = requests.post('https://apis.aligo.in/send/', data=department_sms_data)
                         dept_response_data = dept_response.json()
@@ -1053,7 +1148,7 @@ class ComplaintsRegisterView(APIView):
                         logger.error(f"부서 알림 SMS 전송 중 오류 발생: {str(e)}")
 
                 return Response(
-                    {"status": "success", "message": "민원이 성공적으로 접수되었으며, 부서 사용자들에게 알림이 전송되었습니다.", 
+                    {"status": "success", "message": "민원이 성공적으로 접수되었습니다.", 
                      "complaint_number": complaint_number, "public_slug": public.slug},
                     status=status.HTTP_201_CREATED
                 )
@@ -1066,7 +1161,9 @@ class ComplaintsRegisterView(APIView):
             logger.error(f"민원 접수 실패: 유효하지 않은 데이터 - {serializer.errors}")
             return Response({"status": "error", "message": "유효하지 않은 데이터", "errors": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
 
-class UpdateComplaintStatusView(APIView):
+
+# 민원 상태 변경 API
+class ComplaintUpdateStatusView(APIView):
     permission_classes = [AllowAny]
 
     def patch(self, request, id, *args, **kwargs): 
@@ -1089,13 +1186,14 @@ class UpdateComplaintStatusView(APIView):
                     'user_id': settings.ALIGO_USER_ID,
                     'sender': settings.ALIGO_SENDER,
                     'receiver': complaint.phone,
-                    'msg': f'안녕하세요, 접수번호 [{complaint.complaint_number}]의 민원 처리가 완료되었습니다.',
+                    'msg': f'안녕하세요, [{complaint.title}]의 민원 처리가 완료되었습니다. ',
                     'testmode_yn': 'Y',  # 테스트 모드 활성화 (실제 발송 시 'N'으로 변경)
                 }
+
                 response = requests.post('https://apis.aligo.in/send/', data=sms_data)
                 response_data = response.json()
 
-                logger.debug(f"SMS 전송 데이터: {sms_data}")
+                #logger.debug(f"SMS 전송 데이터: {sms_data}")
 
                 if response_data.get('result_code') != '1':
                     logger.error(f"SMS 전송 실패: {response_data.get('message')}")
@@ -1109,4 +1207,287 @@ class UpdateComplaintStatusView(APIView):
             logger.error(f"민원 상태 업데이트 중 오류 발생: {str(e)}")
             return Response({"status": "error", "message": "민원 상태 업데이트 중 오류가 발생했습니다."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+
+# 민원 부서 이관 API 
+class ComplaintTransferView(APIView):
+    authentication_classes = [PublicUserJWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        try:
+            # 인증된 사용자 정보 가져오기
+            user = request.user
+            user_public = user.public
+
+            # 요청 데이터 확인
+            complaint_id = request.data.get('complaint_id')
+            department_name = request.data.get('department')
+            reason = request.data.get('reason')
+
+            if not all([complaint_id, department_name, reason]):
+                return Response({'error': '모든 필드를 입력해야 합니다.'}, status=status.HTTP_400_BAD_REQUEST)
+
+            # Public_Complaint 객체 가져오기
+            try:
+                complaint = Public_Complaint.objects.get(complaint_id=complaint_id, public=user_public)
+            except Public_Complaint.DoesNotExist:
+                return Response({'error': '민원을 찾을 수 없습니다.'}, status=status.HTTP_404_NOT_FOUND)
+
+            # Public_Department 객체 가져오기
+            try:
+                new_department = Public_Department.objects.get(
+                    department_name=department_name,
+                    public=user_public
+                )
+            except Public_Department.DoesNotExist:
+                return Response(
+                    {'error': f"부서 '{department_name}'를 {user_public}에서 찾을 수 없습니다."},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+            except Public_Department.MultipleObjectsReturned:
+                return Response(
+                    {'error': f"'{department_name}' 부서가 중복되어 정확히 찾을 수 없습니다."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # 현재 부서와 선택된 부서 비교
+            if complaint.department == new_department:
+                return Response(
+                    {'error': '현재 부서와 동일한 부서로 이관할 수 없습니다.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # 부서 업데이트
+            previous_department = complaint.department.department_name
+            complaint.department = new_department
+            complaint.transfer_reason = reason
+            complaint.save()
+
+            # 문자 메시지 발송
+            # 이관한 부서의 유저들을 대상으로 알림 발송
+            users_in_new_department = Public_User.objects.filter(public=user_public, department=new_department)
+            receiver_numbers = [user.phone for user in users_in_new_department if user.phone]
+
+            if not receiver_numbers:
+                return Response(
+                    {"status": "error", "message": "이관된 부서에 유효한 전화번호가 있는 사용자가 없습니다."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            sms_data = {
+                'key': settings.ALIGO_API_KEY,
+                'user_id': settings.ALIGO_USER_ID,
+                'sender': settings.ALIGO_SENDER,
+                'receiver': ','.join(receiver_numbers),
+                'msg': f'[{previous_department}]에서 [{new_department.department_name}]로 민원을 이관하였습니다.',
+                'testmode_yn': 'Y',  # 테스트 모드 활성화 (실제 발송 시 'N'으로 변경)
+            }
+
+            response = requests.post('https://apis.aligo.in/send/', data=sms_data)
+            response_data = response.json()
+
+            if response_data.get('result_code') != '1':
+                logger.error(f"SMS 전송 실패: {response_data.get('message')}")
+                return Response(
+                    {"status": "error", "message": "민원은 이관되었지만 SMS 전송에 실패했습니다."},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+
+            return Response({'success': True, 'message': '민원이 성공적으로 이관되었습니다.'}, status=status.HTTP_200_OK)
+
+        except Public_Complaint.DoesNotExist:
+            return Response({'error': '해당 민원을 찾을 수 없습니다.'}, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            logger.error(f"민원 이관 중 오류 발생: {str(e)}")
+            return Response(
+                {"status": "error", "message": "민원 이관 중 오류가 발생했습니다."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+# 민원 답변 API
+class ComplaintAnswerView(APIView):
+    authentication_classes = [PublicUserJWTAuthentication]  # 커스텀 인증 클래스 사용
+    permission_classes = [IsAuthenticated]  # 인증된 사용자만 접근 가능
+
+    def post(self, request):
+        try:
+            # 요청 데이터 확인
+            #logger.debug(f"Request data: {request.data}")
+            complaint_id = request.data.get('complaint_id')
+            answer=request.data.get('answer')
+
+            # Public_Complaint 객체 가져오기
+            try:
+                complaint = Public_Complaint.objects.get(complaint_id=complaint_id)
+                #logger.debug(f"Complaint found: {complaint}")
+            except Public_Complaint.DoesNotExist:
+                #logger.debug("Complaint not found.")
+                return Response({'error': '민원을 찾을 수 없습니다.'}, status=status.HTTP_404_NOT_FOUND)
+
+            # 답변 저장
+            complaint.answer = answer
+            complaint.save()
+            #logger.debug(f"Answer saved: {answer}")
+
+            # 작성자의 핸드폰 번호 확인
+            phone_number = complaint.phone  # 민원 작성자의 핸드폰 번호
+            if not phone_number:
+                #logger.debug("Phone number not found.")
+                return Response({'error': '민원 작성자의 핸드폰 번호가 없습니다.'}, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Aligo API를 통한 문자 발송 데이터 준비
+            sms_data = {
+                'key': settings.ALIGO_API_KEY,  # Aligo API 키
+                'user_id': settings.ALIGO_USER_ID,  # Aligo 사용자 ID
+                'sender': settings.ALIGO_SENDER,  # 발신자 번호
+                'receiver': phone_number,  # 수신자 번호
+                'msg': f'안녕하세요, {complaint.title} 민원에 대한 답변이 등록되었습니다.',  # 메시지 내용
+                'testmode_yn': 'Y',  # 테스트 모드 (실제 전송 시 'N'으로 설정)
+            }
+
+            # Aligo API 호출
+            response = requests.post('https://apis.aligo.in/send/', data=sms_data)
+
+            # Aligo API 응답 확인
+            if response.status_code == 200:
+                response_data = response.json()
+                if response_data.get('result_code') == '1':  # Aligo 성공 코드
+                    #logger.debug("SMS sent successfully.")
+                    return Response({'success': '문자가 성공적으로 발송되었습니다.'}, status=status.HTTP_200_OK)
+                else:
+                    #logger.debug(f"Aligo error: {response_data.get('message')}")
+                    return Response({'error': response_data.get('message')}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            else:
+                #logger.debug(f"HTTP error: {response.status_code}")
+                return Response({'error': '문자 발송 중 오류가 발생했습니다.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        except Exception as e:
+            #logger.debug(f"Unexpected error: {str(e)}")
+            return Response({'error': '예기치 못한 오류가 발생했습니다.', 'details': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+# Push Notification APIs
+# 사용자 푸시 토큰 저장 API
+class PushTokenView(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        try:
+            user = request.user
+            push_token = request.data.get('push_token')
+            
+            # 푸시 토큰을 사용자 모델에 저장
+            user.push_token = push_token
+            user.save()
+            
+            return Response({'success': True})
+        except Exception as e:
+            return Response({'error': str(e)}, status=400)
+
+
+# 사용자에게 푸시 알림 전송 API
+class SendPushNotificationView(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        try:
+            user = request.user
+            message = request.data.get('message')
+            
+            if not user.push_token:
+                return Response({'error': 'Push token not found'}, status=400)
+                
+            # Expo 푸시 서버로 메시지 전송
+            push_client = PushClient()
+            push_message = PushMessage(
+                to=user.push_token,
+                body=message,
+                data={'type': 'preview_notification'}
+            )
+            push_client.publish(push_message)
+            
+            return Response({'success': True})
+        except Exception as e:
+            return Response({'error': str(e)}, status=400)
+
+
+# Deactivate Account APIs
+# 계정 비활성화
+class DeactivateAccountView(APIView):
+    """
+    사용자를 탈퇴시키는 뷰. 
+    사용자 계정을 비활성화하고 개인정보를 익명화 처리.
+    """
+    authentication_classes = [PublicUserJWTAuthentication]  # 커스텀 인증 클래스 사용
+    permission_classes = [IsAuthenticated]  # 인증된 사용자만 접근 가능
+
+    def post(self, request):
+        """
+        계정을 비활성화하고 익명화
+        """
+        user = request.user
+
+        # 사용자 탈퇴(비활성화 + 익명화) 처리
+        self.deactivate_and_anonymize_user(user)
+
+        return Response({"message": "계정이 성공적으로 탈퇴되었습니다."}, status=status.HTTP_200_OK)
+
+    def deactivate_and_anonymize_user(self, user):
+        """
+        사용자 탈퇴 시 개인정보를 익명화하고 계정을 비활성화.
+        """
+        # 사용자 정보 익명화
+        user.username = f'deleted_user_{user.user_id}'  # 사용자 아이디를 익명화
+        user.phone = f'000-0000-0000_{user.user_id}'  # 핸드폰 번호 삭제 또는 익명화
+        user.email = f'deleted_{user.user_id}@example.com'  # 이메일을 익명화
+        user.name = '탈퇴한 사용자'  # 이름 익명화
+
+        # 사용자 비활성화
+        user.is_active = False
+        user.deactivated_at = timezone.now()  # 비활성화 시간 기록
+        user.save()
+
+        # 사용자가 소유한 가게 및 관련된 데이터 익명화
+        self.anonymize_publics(user)
+
+        # 사용자와 관련된 Edit 데이터 익명화
+        self.anonymize_edits(user)
+
+        # 사용자 폴더 삭제
+        self.delete_user_folder(user)
+
+    def anonymize_publics(self, user):
+        """
+        탈퇴한 사용자의 가게 데이터를 익명화 처리.
+        """
+        publics = Public.objects.filter(public_users=user)
+        for public in publics:
+            public.public_name = f'익명화된 가게_{public.public_id}'  # 가게 이름 익명화
+            public.slug = f'deleted-public_{public.public_id}'  # 간단한 익명화 처리
+            public.save()
+
+    
+    def anonymize_edits(self, user):
+        """
+        탈퇴한 사용자의 Edit 데이터를 익명화 처리.
+        """
+        edits = Public_Edit.objects.filter(user=user)
+        for edit in edits:
+            edit.title = f'익명화된 제목_{edit.id}'
+            edit.content = '익명화된 내용'
+            edit.file = None  # 파일 삭제
+            edit.save()
+
+    def delete_user_folder(self, user):
+        """
+        탈퇴한 사용자의 파일이 저장된 폴더를 삭제.
+        """
+        # 사용자 파일이 저장된 경로
+        user_folder_path = os.path.join(settings.MEDIA_ROOT, 'uploads', str(user.user_id))
         
+        # 폴더가 존재하면 삭제
+        if os.path.exists(user_folder_path):
+            shutil.rmtree(user_folder_path)
+
+ 
